@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create Account – Strathmore Marketplace</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body class="auth-page">
+
+  <header class="pub-header">
+    <button class="icon-btn" onclick="history.back()">←</button>
+    <a href="index.html" class="pub-logo">
+      <span class="pub-logo-icon">🏛</span>
+      <span>Strathmore Marketplace</span>
+    </a>
+    <span style="width:40px"></span>
+  </header>
+
+  <div class="auth-body">
+    <div class="auth-card">
+      <h1>Create Account</h1>
+      <p class="sub">Join the Strathmore University peer-to-peer marketplace. Buy, sell, and connect with your peers.</p>
+
+      <div class="role-tabs" id="regTabs" style="margin-bottom:20px">
+        <button type="button" class="role-tab active" data-type="student" onclick="switchRegType(this)">Student</button>
+        <button type="button" class="role-tab" data-type="vendor"  onclick="switchRegType(this)">Vendor</button>
+      </div>
+
+      <div id="regAlert"></div>
+
+      <form class="auth-form" id="regForm" onsubmit="handleRegister(event)">
+
+        <div class="form-group">
+          <label class="form-label">Full Name</label>
+          <input class="form-input" id="regName" type="text" placeholder="John Doe" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input class="form-input" id="regUsername" type="text" placeholder="johndoe24" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <input class="form-input" id="regEmail" type="email" placeholder="student@strathmore.edu" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Phone Number</label>
+          <input class="form-input" id="regPhone" type="tel" placeholder="+254 700 000 000" required>
+        </div>
+
+        <div class="form-group" id="shopField" style="display:none">
+          <label class="form-label">Shop / Business Name</label>
+          <input class="form-input" id="regShop" type="text" placeholder="e.g. Kevin's Tech Shop">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <div class="input-wrap">
+            <span class="input-icon">🔒</span>
+            <input class="form-input" id="regPass" type="password" placeholder="••••••••" required minlength="8">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Confirm Password</label>
+          <div class="input-wrap">
+            <span class="input-icon">🔒</span>
+            <input class="form-input" id="regPass2" type="password" placeholder="••••••••" required minlength="8">
+          </div>
+        </div>
+
+        <label class="check-row">
+          <input type="checkbox" id="regTerms" required>
+          <span>I agree to the <a href="#" style="color:var(--navy);font-weight:700">Terms of Service</a> and <a href="#" style="color:var(--navy);font-weight:700">Privacy Policy</a>.</span>
+        </label>
+
+        <button type="submit" class="btn btn-primary btn-full btn-lg" id="regBtn">Create Account</button>
+
+        <p class="text-center text-sm text-gray">Already have an account? <a href="login.html" style="color:var(--navy);font-weight:700">Log in</a></p>
+      </form>
+    </div>
+
+    <div class="enc-badge">🛡️ &nbsp; Secure Encrypted Registration</div>
+  </div>
+
+  <footer class="auth-foot">
+    <p><strong>Strathmore Flea Market</strong></p>
+    <p>
+      <a href="#">Terms of Service</a>
+      <a href="#">Privacy Policy</a>
+      <a href="#">Help Center</a>
+    </p>
+    <p style="margin-top:6px">
+      <a href="#">Contact Admin</a> &nbsp;·&nbsp;
+      © 2024 Strathmore University Flea Market
+    </p>
+  </footer>
+
+  <script src="js/main.js"></script>
+  <script>
+    function switchRegType(el) {
+      document.querySelectorAll('#regTabs .role-tab').forEach(t => t.classList.remove('active'))
+      el.classList.add('active')
+      document.getElementById('shopField').style.display = el.dataset.type === 'vendor' ? 'flex' : 'none'
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault()
+      const alertEl = document.getElementById('regAlert')
+      const btn     = document.getElementById('regBtn')
+      alertEl.innerHTML = ''
+
+      const pass  = document.getElementById('regPass').value
+      const pass2 = document.getElementById('regPass2').value
+      if (pass !== pass2) {
+        alertEl.innerHTML = '<div class="alert alert-error">Passwords do not match.</div>'
+        return
+      }
+
+      const role  = document.querySelector('#regTabs .role-tab.active').dataset.type
+      const email = document.getElementById('regEmail').value.trim()
+      btn.disabled    = true
+      btn.textContent = 'Creating account…'
+
+      // 1. Sign up with Supabase Auth
+      const { data, error } = await sb.auth.signUp({ email, password: pass })
+      if (error) {
+        alertEl.innerHTML = `<div class="alert alert-error">${error.message}</div>`
+        btn.disabled    = false
+        btn.textContent = 'Create Account'
+        return
+      }
+
+      // 2. Upsert profile row
+      const profile = {
+        id:        data.user.id,
+        email,
+        full_name: document.getElementById('regName').value.trim(),
+        username:  document.getElementById('regUsername').value.trim(),
+        phone:     document.getElementById('regPhone').value.trim(),
+        role,
+        shop_name: role === 'vendor' ? document.getElementById('regShop').value.trim() : null,
+      }
+      await sb.from('users').upsert(profile)
+
+      alertEl.innerHTML = '<div class="alert alert-success">Account created! Check your email to confirm, then sign in.</div>'
+      btn.textContent = 'Account Created ✓'
+
+      setTimeout(() => { location.href = 'login.html' }, 2000)
+    }
+
+    // Redirect if already logged in
+    getSession().then(s => { if (s) location.href = 'marketplace.html' })
+  </script>
+</body>
+</html>
