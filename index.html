@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Strathmore Marketplace – Trade, Share &amp; Grow</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body class="has-bnav">
+
+  <header class="pub-header">
+    <button class="icon-btn" onclick="toggleMobileMenu()">☰</button>
+    <a href="index.html" class="pub-logo">
+      <span class="pub-logo-icon">🏛</span>
+      <span>Strathmore Marketplace</span>
+    </a>
+    <button class="icon-btn" onclick="location.href='marketplace.html'">🔍</button>
+  </header>
+
+  <section class="landing-hero">
+    <h1>Trade, Share, &amp; Grow within Strathmore</h1>
+    <p>The inclusive marketplace for buying and selling. Discover textbooks, gadgets, and services from across our dynamic university community.</p>
+    <div class="hero-search">
+      <input type="text" id="heroSearch" placeholder="Search for textbooks, electronics, services…">
+      <button class="btn btn-primary" onclick="doSearch()">Find Items</button>
+    </div>
+  </section>
+
+  <!-- Featured Listings -->
+  <section class="section">
+    <div class="section-label">Curated Picks</div>
+    <div class="section-header">
+      <h2>Featured Listings</h2>
+      <a href="marketplace.html" class="view-all">View All +</a>
+    </div>
+    <div class="product-stack" id="featuredProducts">
+      <div class="spinner-wrap"><div class="spinner"></div></div>
+    </div>
+  </section>
+
+  <div class="section-gap"></div>
+
+  <!-- Upcoming Flea Events -->
+  <section class="section">
+    <div class="section-header">
+      <h2>Upcoming Flea Events</h2>
+      <a href="events.html" class="icon-btn">📅</a>
+    </div>
+    <div class="event-stack" id="upcomingEvents">
+      <div class="spinner-wrap"><div class="spinner"></div></div>
+    </div>
+  </section>
+
+  <div class="section-gap"></div>
+
+  <!-- Campus News -->
+  <section class="campus-news">
+    <h2>Campus News</h2>
+    <p class="sub">Updates and announcements from the marketplace admin.</p>
+    <div class="news-pill-list" id="campusNews">
+      <div class="spinner-wrap"><div class="spinner" style="border-top-color:rgba(255,255,255,.6)"></div></div>
+    </div>
+    <div class="news-cta">
+      <a href="news.html" class="btn btn-white btn-sm">View All Updates</a>
+    </div>
+  </section>
+
+  <div class="section-gap"></div>
+
+  <section class="vendor-cta">
+    <h2>Have Something to Sell?</h2>
+    <p>Join over 300 verified student vendors on Strathmore. Start your shop, help a fellow student, and earn extra pocket money.</p>
+    <div class="cta-buttons">
+      <a href="register.html" class="btn btn-primary btn-lg">Become a Vendor</a>
+      <a href="#" class="btn btn-outline">How it Works</a>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="footer-brand">
+      <strong>Strathmore University FleaMarket</strong>
+      <p>Empowering the student community through peer-to-peer commerce and sustainable trading of academic resources.</p>
+    </div>
+    <div class="footer-links">
+      <div class="footer-col">
+        <strong>Marketplace</strong>
+        <a href="marketplace.html">All Listings</a>
+        <a href="marketplace.html">Electronics</a>
+        <a href="marketplace.html">Books &amp; Media</a>
+        <a href="marketplace.html">Student Services</a>
+      </div>
+      <div class="footer-col">
+        <strong>Support</strong>
+        <a href="#">Safety Tips</a>
+        <a href="#">Help Center</a>
+        <a href="#">Privacy Policy</a>
+        <a href="#">Terms of Service</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>Student Council Office · Extension: 4300</p>
+      <p>© 2024 Strathmore University Flea Market. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <nav class="bottom-nav">
+    <button class="bnav-item active" onclick="location.href='index.html'"><span class="bnav-icon">🏠</span>Home</button>
+    <button class="bnav-item" onclick="location.href='events.html'"><span class="bnav-icon">📅</span>Events</button>
+    <button class="bnav-item" onclick="location.href='register.html'"><span class="bnav-icon">🏷️</span>Sell</button>
+    <button class="bnav-item" onclick="location.href='login.html'"><span class="bnav-icon">👤</span>Profile</button>
+  </nav>
+
+  <script src="js/main.js"></script>
+  <script>
+    function doSearch() {
+      const q = document.getElementById('heroSearch').value.trim()
+      if (q) location.href = `marketplace.html?q=${encodeURIComponent(q)}`
+    }
+    document.getElementById('heroSearch').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch() })
+
+    async function loadFeatured() {
+      const el = document.getElementById('featuredProducts')
+      const { data, error } = await sb.from('products')
+        .select('*').eq('status','active').order('created_at',{ascending:false}).limit(4)
+      if (error || !data?.length) { showEmpty(el, 'No listings yet. Be the first to sell!'); return }
+      el.innerHTML = data.map(productStackCard).join('')
+    }
+
+    async function loadEvents() {
+      const el = document.getElementById('upcomingEvents')
+      const { data, error } = await sb.from('events')
+        .select('*').in('status',['upcoming','ongoing']).order('event_date',{ascending:true}).limit(3)
+      if (error || !data?.length) { showEmpty(el, 'No upcoming events.'); return }
+      el.innerHTML = data.map(eventListItem).join('')
+    }
+
+    async function loadNews() {
+      const el = document.getElementById('campusNews')
+      const { data, error } = await sb.from('announcements')
+        .select('*').order('created_at',{ascending:false}).limit(3)
+      if (error || !data?.length) { showEmpty(el, ''); return }
+      el.innerHTML = data.map(newsPill).join('')
+    }
+
+    loadFeatured()
+    loadEvents()
+    loadNews()
+  </script>
+</body>
+</html>

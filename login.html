@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In – Strathmore Marketplace</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body class="auth-page">
+
+  <header class="auth-header">
+    <a href="index.html" class="auth-header-logo">
+      <span>🏛</span>
+      <span>Strathmore Marketplace</span>
+    </a>
+  </header>
+
+  <div class="auth-body">
+    <div class="auth-card">
+      <h1>Welcome Back.</h1>
+      <p class="sub">Sign in with your unique ID and password to manage your shop or explore the campus flea market.</p>
+
+      <div id="loginAlert"></div>
+
+      <form class="auth-form" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <div class="form-label">Select Role</div>
+          <div class="role-tabs" id="roleTabsLogin">
+            <button type="button" class="role-tab active" data-role="student" onclick="switchRole(this)">Student</button>
+            <button type="button" class="role-tab" data-role="vendor"  onclick="switchRole(this)">Vendor</button>
+            <button type="button" class="role-tab" data-role="admin"   onclick="switchRole(this)">Admin</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-label" id="idLabel">Student ID / Email</div>
+          <div class="input-wrap">
+            <span class="input-icon">👤</span>
+            <input class="form-input" type="email" id="loginId" placeholder="e.g. john.doe@strathmore.edu" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-row">
+            <div class="form-label">Password</div>
+            <a href="#" onclick="handleForgot(event)">Forgot?</a>
+          </div>
+          <div class="input-wrap">
+            <span class="input-icon">🔒</span>
+            <input class="form-input" type="password" id="loginPass" placeholder="••••••••" required>
+          </div>
+        </div>
+
+        <label class="check-row">
+          <input type="checkbox" id="rememberMe">
+          <span>Keep me logged in for 30 days</span>
+        </label>
+
+        <button type="submit" class="btn btn-primary btn-full btn-lg" id="signInBtn">
+          Sign In as Student →
+        </button>
+
+        <div class="auth-divider">New Here?</div>
+
+        <a href="register.html" class="btn btn-outline btn-full">👤+ &nbsp;Create Student Account</a>
+      </form>
+    </div>
+
+    <div class="security-note">
+      <span style="font-size:1.1rem;flex-shrink:0">🛡️</span>
+      <span>This is a secure academic environment. Only verified Strathmore University students and staff are permitted to trade.</span>
+    </div>
+  </div>
+
+  <footer class="auth-foot">
+    <p>© 2024 Strathmore University Flea Market</p>
+    <p>
+      <a href="#">Terms of Service</a>
+      <a href="#">Privacy Policy</a>
+      <a href="#">Help Center</a>
+    </p>
+    <p style="margin-top:6px"><a href="#">Contact Admin</a></p>
+  </footer>
+
+  <script src="js/main.js"></script>
+  <script>
+    const roleLabels = {
+      student: { label:'Student ID / Email',  btn:'Sign In as Student →', ph:'john.doe@strathmore.edu' },
+      vendor:  { label:'Vendor Email',         btn:'Sign In as Vendor →',  ph:'vendor@strathmore.edu'  },
+      admin:   { label:'Admin Email',           btn:'Sign In as Admin →',   ph:'admin@strathmore.edu'   },
+    }
+
+    function switchRole(el) {
+      document.querySelectorAll('#roleTabsLogin .role-tab').forEach(t => t.classList.remove('active'))
+      el.classList.add('active')
+      const cfg = roleLabels[el.dataset.role]
+      document.getElementById('idLabel').textContent   = cfg.label
+      document.getElementById('loginId').placeholder   = cfg.ph
+      document.getElementById('signInBtn').textContent = cfg.btn
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault()
+      const alertEl = document.getElementById('loginAlert')
+      const btn     = document.getElementById('signInBtn')
+      alertEl.innerHTML = ''
+      btn.disabled  = true
+      btn.textContent   = 'Signing in…'
+
+      const email    = document.getElementById('loginId').value.trim()
+      const password = document.getElementById('loginPass').value
+
+      const { data, error } = await sb.auth.signInWithPassword({ email, password })
+
+      if (error) {
+        alertEl.innerHTML = `<div class="alert alert-error">${error.message}</div>`
+        btn.disabled  = false
+        btn.textContent   = document.querySelector('#roleTabsLogin .role-tab.active').dataset.role === 'student'
+          ? 'Sign In as Student →' : 'Sign In →'
+        return
+      }
+
+      // Fetch role from users table
+      const { data: profile } = await sb.from('users').select('role').eq('id', data.user.id).single()
+      const role = profile?.role || 'student'
+
+      if (role === 'admin')  { location.href = 'admin.html';       return }
+      if (role === 'vendor') { location.href = 'marketplace.html'; return }
+      location.href = 'marketplace.html'
+    }
+
+    async function handleForgot(e) {
+      e.preventDefault()
+      const email = document.getElementById('loginId').value.trim()
+      if (!email) { alert('Enter your email address first.'); return }
+      const { error } = await sb.auth.resetPasswordForEmail(email, {
+        redirectTo: location.origin + '/login.html'
+      })
+      if (error) { alert('Error: ' + error.message); return }
+      document.getElementById('loginAlert').innerHTML =
+        '<div class="alert alert-success">Password reset email sent! Check your inbox.</div>'
+    }
+
+    // Redirect if already logged in
+    getSession().then(s => { if (s) location.href = 'marketplace.html' })
+  </script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Market Updates – Strathmore Marketplace</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body class="has-bnav">
+
+  <header class="pub-header">
+    <button class="icon-btn" onclick="toggleMobileMenu()">☰</button>
+    <a href="index.html" class="pub-logo">
+      <span class="pub-logo-icon">🏛</span>
+      <span>Strathmore Marketplace</span>
+    </a>
+    <button class="icon-btn" onclick="location.href='marketplace.html'">🔍</button>
+  </header>
+
+  <main style="padding:22px 18px 80px">
+
+    <div style="margin-bottom:20px">
+      <h1 style="font-size:1.65rem;margin-bottom:8px">Market Updates</h1>
+      <p style="color:var(--text-3);font-size:0.85rem;line-height:1.5">Stay informed with the latest news, policy changes, and event schedules from the Strathmore University Flea Market administration.</p>
+    </div>
+
+    <div class="feat-hero" style="margin-bottom:22px">
+      <span class="feat-hero-lbl">📌 Featured</span>
+      <div class="feat-hero-title">Semester Market Season Updates</div>
+    </div>
+
+    <!-- Tag filters -->
+    <div class="pill-row" id="tagPills" style="margin-bottom:20px">
+      <button class="pill active" onclick="filterTag('',this)">All</button>
+      <button class="pill" onclick="filterTag('policy',this)">Policy</button>
+      <button class="pill" onclick="filterTag('event',this)">Events</button>
+      <button class="pill" onclick="filterTag('alert',this)">Alerts</button>
+      <button class="pill" onclick="filterTag('tips',this)">Tips</button>
+      <button class="pill" onclick="filterTag('success',this)">Success</button>
+    </div>
+
+    <div id="newsFeed">
+      <div class="spinner-wrap"><div class="spinner"></div></div>
+    </div>
+
+    <div class="pagination" id="newsPagination" style="display:none">
+      <button class="pag-btn" id="newsPrev" onclick="newsPage(-1)">‹</button>
+      <span id="newsPageInfo" style="font-size:0.85rem;color:var(--text-3)"></span>
+      <button class="pag-btn" id="newsNext" onclick="newsPage(1)">›</button>
+    </div>
+
+  </main>
+
+  <footer class="site-footer" style="padding-bottom:80px">
+    <div class="footer-bottom" style="border-top:none;padding-top:0">
+      <strong style="color:white;display:block;margin-bottom:6px">Strathmore University Flea Market</strong>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
+        <a href="#">Terms of Service</a>
+        <a href="#">Privacy Policy</a>
+        <a href="#">Help Center</a>
+        <a href="#">Contact Admin</a>
+      </div>
+      <p style="margin-top:6px">© 2024 Strathmore University Flea Market</p>
+    </div>
+  </footer>
+
+  <nav class="bottom-nav">
+    <button class="bnav-item" onclick="location.href='index.html'"><span class="bnav-icon">🏠</span>Home</button>
+    <button class="bnav-item active" onclick="location.href='news.html'"><span class="bnav-icon">📰</span>News</button>
+    <button class="bnav-item" onclick="location.href='register.html'"><span class="bnav-icon">🏷️</span>Sell</button>
+    <button class="bnav-item" onclick="location.href='login.html'"><span class="bnav-icon">👤</span>Profile</button>
+  </nav>
+
+  <script src="js/main.js"></script>
+  <script>
+    const NEWS_PAGE = 5
+    let newsOffset  = 0
+    let newsTotal   = 0
+    let activeTag   = ''
+
+    function filterTag(tag, el) {
+      activeTag  = tag
+      newsOffset = 0
+      document.querySelectorAll('#tagPills .pill').forEach(p => p.classList.remove('active'))
+      el.classList.add('active')
+      loadNews()
+    }
+
+    async function loadNews() {
+      const el = document.getElementById('newsFeed')
+      showLoading(el)
+
+      let query = sb.from('announcements')
+        .select('*, users(full_name)', { count:'exact' })
+        .order('created_at', { ascending: false })
+        .range(newsOffset, newsOffset + NEWS_PAGE - 1)
+
+      if (activeTag) query = query.eq('tag', activeTag)
+
+      const { data, error, count } = await query
+      newsTotal = count || 0
+
+      if (error) { showError(el,'Failed to load updates. Please try again.'); return }
+      if (!data?.length) { showEmpty(el,'No updates found.'); hideNewsPag(); return }
+
+      el.innerHTML = data.map(newsCard).join('')
+      updateNewsPag()
+    }
+
+    function newsPage(dir) {
+      const maxOff = Math.max(0, (Math.ceil(newsTotal/NEWS_PAGE)-1)*NEWS_PAGE)
+      newsOffset   = Math.max(0, Math.min(newsOffset + dir*NEWS_PAGE, maxOff))
+      loadNews()
+      window.scrollTo({top:0,behavior:'smooth'})
+    }
+
+    function updateNewsPag() {
+      const pages = Math.ceil(newsTotal/NEWS_PAGE)
+      const pg    = document.getElementById('newsPagination')
+      if (pages <= 1) { pg.style.display='none'; return }
+      pg.style.display = 'flex'
+      const cur = newsOffset/NEWS_PAGE + 1
+      document.getElementById('newsPageInfo').textContent = `Page ${cur} of ${pages}`
+      document.getElementById('newsPrev').disabled = newsOffset === 0
+      document.getElementById('newsNext').disabled = newsOffset + NEWS_PAGE >= newsTotal
+    }
+
+    function hideNewsPag() { document.getElementById('newsPagination').style.display='none' }
+
+    loadNews()
+  </script>
+</body>
+</html>
