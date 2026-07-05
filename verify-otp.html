@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify Your Email – Strathmore Marketplace</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body class="auth-page">
+
+  <header class="topnav">
+    <a href="index.html" class="topnav-logo">
+      <span class="topnav-logo-icon">🏛</span>
+      <span>Strathmore Marketplace</span>
+    </a>
+    <button class="topnav-toggle" id="topnavToggle" onclick="toggleTopNav()" aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <nav class="topnav-links" id="topnavLinks">
+      <a href="index.html" class="topnav-link" data-page="index.html">Home</a>
+      <a href="marketplace.html" class="topnav-link" data-page="marketplace.html">Browse</a>
+      <a href="events.html" class="topnav-link" data-page="events.html">Events</a>
+      <a href="news.html" class="topnav-link" data-page="news.html">News</a>
+      <span class="topnav-auth" id="topnavAuth"></span>
+    </nav>
+  </header>
+
+  <div class="auth-body">
+    <div class="auth-card">
+      <h1>Verify Your Email</h1>
+      <p class="sub">Enter the 6-digit verification code sent to <strong id="otpEmailLabel">your email</strong>. The code expires 5 minutes after it's sent.</p>
+
+      <div id="otpAlert"></div>
+
+      <form class="auth-form" id="otpForm" onsubmit="handleVerify(event)">
+        <div class="form-group">
+          <label class="form-label">Verification Code</label>
+          <input
+            class="form-input"
+            id="otpCode"
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9]{6}"
+            maxlength="6"
+            placeholder="123456"
+            style="letter-spacing:6px;font-size:1.2rem;text-align:center;font-weight:700"
+            required
+            autofocus>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-full btn-lg" id="verifyBtn">Verify Code</button>
+
+        <p class="text-center text-sm text-gray">
+          Didn't get a code? <a href="#" id="resendBtn" onclick="handleResend(event)" style="color:var(--navy);font-weight:700">Resend Code</a>
+        </p>
+        <p class="text-center text-sm text-gray">Wrong email? <a href="register.html" style="color:var(--navy);font-weight:700">Start over</a></p>
+      </form>
+    </div>
+
+    <div class="enc-badge">🛡️ &nbsp; Secure Encrypted Verification</div>
+  </div>
+
+  <footer class="auth-foot">
+    <p><strong>Strathmore Flea Market</strong></p>
+    <p>© 2024 Strathmore University Flea Market</p>
+  </footer>
+
+  <script src="js/main.js"></script>
+  <script>
+    const pendingEmail = sessionStorage.getItem('pendingVerifyEmail')
+    if (!pendingEmail) {
+      location.href = 'register.html'
+    } else {
+      document.getElementById('otpEmailLabel').textContent = pendingEmail
+    }
+
+    async function handleVerify(e) {
+      e.preventDefault()
+      const alertEl = document.getElementById('otpAlert')
+      const btn     = document.getElementById('verifyBtn')
+      const code    = document.getElementById('otpCode').value.trim()
+      alertEl.innerHTML = ''
+
+      if (!/^\d{6}$/.test(code)) {
+        alertEl.innerHTML = '<div class="alert alert-error">Enter the 6-digit code exactly as sent.</div>'
+        return
+      }
+
+      btn.disabled    = true
+      btn.textContent = 'Verifying…'
+
+      // Exchanges the OTP for a session as the now-confirmed user. Supabase itself
+      // owns the code/expiry/matching logic — verifyOtp() returns an error for both
+      // "wrong code" and "expired code", so both are shown identically below.
+      const { data, error } = await sb.auth.verifyOtp({
+        email: pendingEmail,
+        token: code,
+        type:  'signup',
+      })
+
+      if (error) {
+        alertEl.innerHTML = '<div class="alert alert-error">Invalid or expired code. Please try again or resend.</div>'
+        btn.disabled    = false
+        btn.textContent = 'Verify Code'
+        return
+      }
+
+      // The account is now Active. Use the brief authenticated session to write the
+      // full profile (queued as user_metadata at registration) into public.users.
+      const meta = data.user.user_metadata || {}
+      await sb.from('users').upsert({
+        id:        data.user.id,
+        email:     pendingEmail,
+        full_name: meta.full_name || '',
+        username:  meta.username || '',
+        phone:     meta.phone || '',
+        role:      meta.role || 'student',
+        shop_name: meta.role === 'vendor' ? (meta.shop_name || null) : null,
+      })
+
+      await sb.auth.signOut()
+      sessionStorage.removeItem('pendingVerifyEmail')
+
+      alertEl.innerHTML = '<div class="alert alert-success">Email verified! Redirecting to login…</div>'
+      btn.textContent = 'Verified ✓'
+      setTimeout(() => { location.href = 'login.html' }, 1500)
+    }
+
+    async function handleResend(e) {
+      e.preventDefault()
+      const alertEl = document.getElementById('otpAlert')
+      const link    = document.getElementById('resendBtn')
+      link.style.pointerEvents = 'none'
+      link.style.opacity = '.5'
+
+      const { error } = await sb.auth.resend({ type: 'signup', email: pendingEmail })
+      alertEl.innerHTML = error
+        ? `<div class="alert alert-error">${error.message}</div>`
+        : '<div class="alert alert-success">A new code has been sent to your email.</div>'
+
+      setTimeout(() => { link.style.pointerEvents = 'auto'; link.style.opacity = '1' }, 30000)
+    }
+  </script>
+</body>
+</html>

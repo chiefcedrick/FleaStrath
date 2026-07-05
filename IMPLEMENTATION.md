@@ -50,24 +50,31 @@ A Postgres trigger, `handle_new_user()`, fires automatically whenever a new row 
 
 ## 3. Authentication & Registration
 
-### Registration (`register.html`)
-When the user submits the form:
+### Registration + Email OTP Verification (`register.html` → `verify-otp.html`)
+Registration no longer logs the user in immediately — it requires email verification first:
 1. **Client-side validation** runs first: passwords must match, all required fields must be filled, password must be ≥8 characters, terms checkbox must be checked.
-2. `sb.auth.signUp({ email, password })` — Supabase Auth creates the account (hashes and stores the password internally; FleaStrath never sees or stores the raw password).
-3. The `handle_new_user()` trigger (see above) fires immediately and creates a bare `public.users` row.
-4. The registration form then runs `sb.from('users').upsert({ id, email, full_name, username, phone, role, shop_name })`, which fills in the rest of the profile on top of that trigger-created row (vendor accounts additionally get `shop_name`).
-5. On success: alert "Account created! Check your email to confirm, then sign in." → redirect to `login.html`.
-6. On failure (e.g., duplicate email — Supabase Auth rejects duplicate emails at the `auth.users` level): the error message is shown inline.
+2. `sb.auth.signUp({ email, password, options: { data: {...profile fields} } })` — Supabase Auth creates the (unconfirmed) account. The profile fields (`full_name`, `username`, `phone`, `role`, `shop_name`) ride along as `user_metadata` on the auth user rather than being written to `public.users` yet, because no session exists at this point to satisfy the `users` table's RLS insert policy.
+3. Supabase's mailer sends the account's institutional email a **6-digit numeric OTP** (this is Supabase's native "Confirm signup" email, configured to embed `{{ .Token }}` — see the setup checklist below). Supabase stores the code and its expiry server-side; FleaStrath never persists it in its own database.
+4. The browser stores the pending email in `sessionStorage` and redirects to `verify-otp.html`.
+5. On `verify-otp.html`, submitting the 6-digit code calls `sb.auth.verifyOtp({ email, token, type: 'signup' })`. Supabase checks the code and expiry itself:
+   - **Match + not expired:** returns a short-lived session for the now-confirmed user. That session is used once to `sb.from('users').upsert({...})` — writing the full profile (pulled back out of `user_metadata`) into `public.users` — then immediately `sb.auth.signOut()`, and the user is redirected to `login.html`.
+   - **Wrong code or expired:** `error` is returned; the page shows "Invalid or expired code. Please try again or resend." A "Resend Code" link calls `sb.auth.resend({ type: 'signup', email })`.
+6. On signUp failure (e.g., duplicate email — rejected at the `auth.users` level): the error message is shown inline on `register.html`, no OTP is sent.
 
-**Note on validation gaps:** duplicate **username** is not explicitly checked client-side, though the `users.username` column has a `unique` database constraint, so a duplicate username will still fail — just via a raw Postgres error message rather than a friendly one. Also, the profile `upsert` in step 4 does not check its own error, so if it silently fails the user still sees "Account created!" and is redirected — this is a known inconsistency worth being aware of for the demo.
+**Required one-time Supabase Dashboard configuration** (cannot be done from this codebase — it's project-level Auth config):
+- Authentication → Providers → Email → enable **"Confirm email"**.
+- Authentication → Email Templates → **Confirm signup** → edit the template body to include `{{ .Token }}` (Supabase's default template links to a URL instead of showing a code; swapping in the token turns it into the 6-digit OTP flow this app expects).
+- Authentication → Settings → set the **OTP expiry** to `300` seconds (5 minutes) — this is what actually enforces the 5-minute expiry; the frontend has no control over it.
+
+**Note on validation gaps:** duplicate **username** is not explicitly checked client-side, though the `users.username` column has a `unique` database constraint, so a duplicate username will still fail — just via a raw Postgres error message rather than a friendly one.
 
 ### Login (`login.html`)
-1. `sb.auth.signInWithPassword({ email, password })` authenticates against Supabase Auth.
+1. `sb.auth.signInWithPassword({ email, password })` authenticates against Supabase Auth. If "Confirm email" is enabled (per above) and the account hasn't completed OTP verification yet, Supabase itself rejects the login attempt with an "Email not confirmed" error — the app doesn't need to check this separately.
 2. On success, the app queries `sb.from('users').select('role').eq('id', user.id).single()` to find out the account's role.
 3. **Redirect by role:** `role === 'admin'` → `admin.html`; everyone else (`student`/`vendor`) → `marketplace.html`.
 4. On failure: "Incorrect email or password" style message shown in the alert box; the login button re-enables.
 5. **Forgot Password:** `sb.auth.resetPasswordForEmail(email, {...})` sends a password-reset email via Supabase Auth.
-6. The Student/Vendor/Admin tabs on the login page are **cosmetic only** — they don't change which credentials are checked. The actual role is always determined from the database after authentication, not from which tab was clicked.
+6. The Student/Vendor/Admin **role dropdown** on the login page is **cosmetic only** — it doesn't change which credentials are checked. The actual role is always determined from the database after authentication, not from the dropdown selection. Selecting "Admin / Support" additionally reveals a demo-credentials hint box at the bottom of the card (see §8, Known Limitations, for why this is a placeholder rather than a real credential).
 
 ### Logout
 `logout()` (shared helper) calls `sb.auth.signOut()`, which invalidates the session/token, then redirects to `login.html`. Because the session token is gone, any page that calls `requireAuth()` on load will immediately bounce back to the login page if the browser Back button is used afterward — satisfying the "prevent Back button from reopening dashboard" requirement.
@@ -167,6 +174,8 @@ These are gaps between what the schema/UI *suggests* and what is *fully wired up
 2. **No checkout/"Buy" flow.** `orders.html` and the admin activity feed both read from `orders`, but no button anywhere inserts a row into it. The "add to cart" 🛒 icons on product cards only show a toast — they don't add to a real cart or create an order.
 3. **Role gating is client-side only** for admin-only writes (events/announcements) and vendor-only writes (products) — the database's RLS policies are more permissive than the UI implies (see §4). This is fine for a student project but worth a one-line caveat in your report ("access control is enforced at the application layer for these actions") rather than claiming full database-level role separation everywhere.
 4. **Vendor verification is cosmetic for listing purposes** — an unverified/student account can still list a product via `my-shop.html`; `verified` currently only gates the "Verified" badge shown to buyers, not the ability to sell.
-5. **Register page doesn't surface upsert errors** — if the profile-completion step silently fails, the user still sees "Account created!". Low risk in practice (the DB trigger already guarantees a baseline row), but worth knowing.
+5. **`verify-otp.html` doesn't surface upsert errors** — if the post-verification profile write silently fails, the user still sees "Email verified!" and is redirected to login. Low risk in practice (the DB trigger already guarantees a baseline `id`+`email` row), but worth knowing.
+6. **The admin-role login hint box is intentionally a placeholder, not a real credential.** `login.html`'s dropdown reveals `demo-admin@example.com` / `DemoPass123` when "Admin / Support" is selected — this is a fake account that doesn't exist in the database, shown only so an examiner can see where admin login would be demonstrated. It is **not** wired to bypass authentication and there is no matching row in `auth.users`. Do not replace these with your real seeded admin's actual credentials — displaying genuine admin credentials in plaintext to any anonymous site visitor is a hardcoded-credential vulnerability (CWE-798). If your examiner needs to log in as admin, hand them the real credentials separately (verbally, or in a private note), not through the UI.
+7. **Navbar redesign scope:** the new top navbar (logo top-left, links top-right, hamburger→drawer on mobile) was applied to the public/auth pages that previously used the mobile-style header + bottom tab bar: `index.html`, `events.html`, `news.html`, `login.html`, `register.html`, and the new `verify-otp.html`. The logged-in dashboard pages (`marketplace.html`, `my-shop.html`, `admin.html`, `orders.html`, `settings.html`) intentionally kept their existing left-sidebar + topbar layout — that's already a standard desktop pattern (not the "mobile app" look being fixed) and rewiring it risked breaking `populateSidebar()`/`requireAuth()` bindings across five pages for no visual gain. `home-student.html` was also left untouched — it's a deliberately mobile-only view (see its own file-structure entry above) that isn't linked from anywhere else in the site.
 
-None of these block the core end-to-end demo described in your rubric (register → login → add product → browse/search/filter → view details → announcements → events → admin approve/broadcast → logout) — that full path is implemented and functional. They matter mainly for making sure your written report doesn't claim more than the app currently does (e.g., don't describe a "shopping cart and checkout system" unless you add one).
+None of these block the core end-to-end demo described in your rubric (register → verify email → login → add product → browse/search/filter → view details → announcements → events → admin approve/broadcast → logout) — that full path is implemented and functional. They matter mainly for making sure your written report doesn't claim more than the app currently does (e.g., don't describe a "shopping cart and checkout system" unless you add one).

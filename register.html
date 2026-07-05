@@ -10,13 +10,21 @@
 </head>
 <body class="auth-page">
 
-  <header class="pub-header">
-    <button class="icon-btn" onclick="history.back()">←</button>
-    <a href="index.html" class="pub-logo">
-      <span class="pub-logo-icon">🏛</span>
+  <header class="topnav">
+    <a href="index.html" class="topnav-logo">
+      <span class="topnav-logo-icon">🏛</span>
       <span>Strathmore Marketplace</span>
     </a>
-    <span style="width:40px"></span>
+    <button class="topnav-toggle" id="topnavToggle" onclick="toggleTopNav()" aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <nav class="topnav-links" id="topnavLinks">
+      <a href="index.html" class="topnav-link" data-page="index.html">Home</a>
+      <a href="marketplace.html" class="topnav-link" data-page="marketplace.html">Browse</a>
+      <a href="events.html" class="topnav-link" data-page="events.html">Events</a>
+      <a href="news.html" class="topnav-link" data-page="news.html">News</a>
+      <span class="topnav-auth" id="topnavAuth"></span>
+    </nav>
   </header>
 
   <div class="auth-body">
@@ -127,8 +135,23 @@
       btn.disabled    = true
       btn.textContent = 'Creating account…'
 
-      // 1. Sign up with Supabase Auth
-      const { data, error } = await sb.auth.signUp({ email, password: pass })
+      // 1. Sign up with Supabase Auth. Profile fields ride along as user_metadata so
+      //    verify-otp.html can write the `users` row once the account is confirmed —
+      //    no session exists yet at this point (email confirmation required), so an
+      //    RLS-gated insert/upsert here would be rejected.
+      const { data, error } = await sb.auth.signUp({
+        email,
+        password: pass,
+        options: {
+          data: {
+            full_name: document.getElementById('regName').value.trim(),
+            username:  document.getElementById('regUsername').value.trim(),
+            phone:     document.getElementById('regPhone').value.trim(),
+            role,
+            shop_name: role === 'vendor' ? document.getElementById('regShop').value.trim() : null,
+          },
+        },
+      })
       if (error) {
         alertEl.innerHTML = `<div class="alert alert-error">${error.message}</div>`
         btn.disabled    = false
@@ -136,22 +159,15 @@
         return
       }
 
-      // 2. Upsert profile row
-      const profile = {
-        id:        data.user.id,
-        email,
-        full_name: document.getElementById('regName').value.trim(),
-        username:  document.getElementById('regUsername').value.trim(),
-        phone:     document.getElementById('regPhone').value.trim(),
-        role,
-        shop_name: role === 'vendor' ? document.getElementById('regShop').value.trim() : null,
-      }
-      await sb.from('users').upsert(profile)
+      // Supabase may still open a session if "Confirm email" isn't enabled on this
+      // project — force it closed so the OTP step is never skippable.
+      if (data.session) await sb.auth.signOut()
 
-      alertEl.innerHTML = '<div class="alert alert-success">Account created! Check your email to confirm, then sign in.</div>'
-      btn.textContent = 'Account Created ✓'
+      sessionStorage.setItem('pendingVerifyEmail', email)
+      alertEl.innerHTML = '<div class="alert alert-success">Verification code sent! Redirecting…</div>'
+      btn.textContent = 'Check Your Email ✓'
 
-      setTimeout(() => { location.href = 'login.html' }, 2000)
+      setTimeout(() => { location.href = 'verify-otp.html' }, 1200)
     }
 
     // Redirect if already logged in

@@ -10,11 +10,21 @@
 </head>
 <body class="auth-page">
 
-  <header class="auth-header">
-    <a href="index.html" class="auth-header-logo">
-      <span>🏛</span>
+  <header class="topnav">
+    <a href="index.html" class="topnav-logo">
+      <span class="topnav-logo-icon">🏛</span>
       <span>Strathmore Marketplace</span>
     </a>
+    <button class="topnav-toggle" id="topnavToggle" onclick="toggleTopNav()" aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <nav class="topnav-links" id="topnavLinks">
+      <a href="index.html" class="topnav-link" data-page="index.html">Home</a>
+      <a href="marketplace.html" class="topnav-link" data-page="marketplace.html">Browse</a>
+      <a href="events.html" class="topnav-link" data-page="events.html">Events</a>
+      <a href="news.html" class="topnav-link" data-page="news.html">News</a>
+      <span class="topnav-auth" id="topnavAuth"></span>
+    </nav>
   </header>
 
   <div class="auth-body">
@@ -26,12 +36,12 @@
 
       <form class="auth-form" onsubmit="handleLogin(event)">
         <div class="form-group">
-          <div class="form-label">Select Role</div>
-          <div class="role-tabs" id="roleTabsLogin">
-            <button type="button" class="role-tab active" data-role="student" onclick="switchRole(this)">Student</button>
-            <button type="button" class="role-tab" data-role="vendor"  onclick="switchRole(this)">Vendor</button>
-            <button type="button" class="role-tab" data-role="admin"   onclick="switchRole(this)">Admin</button>
-          </div>
+          <label class="form-label" for="roleSelect">Select Role</label>
+          <select class="form-input" id="roleSelect" onchange="handleRoleChange()">
+            <option value="student">Student</option>
+            <option value="vendor">Vendor</option>
+            <option value="admin">Admin / Support</option>
+          </select>
         </div>
 
         <div class="form-group">
@@ -66,6 +76,12 @@
 
         <a href="register.html" class="btn btn-outline btn-full">👤+ &nbsp;Create Student Account</a>
       </form>
+
+      <div id="adminHintBox" class="alert alert-warn" style="display:none;margin-top:14px">
+        <strong>⚠️ Demo access only — remove before any real deployment</strong><br>
+        Testing Institutional Email: <strong>demo-admin@example.com</strong><br>
+        Testing Password: <strong>DemoPass123</strong>
+      </div>
     </div>
 
     <div class="security-note">
@@ -92,13 +108,16 @@
       admin:   { label:'Admin Email',           btn:'Sign In as Admin →',   ph:'admin@strathmore.edu'   },
     }
 
-    function switchRole(el) {
-      document.querySelectorAll('#roleTabsLogin .role-tab').forEach(t => t.classList.remove('active'))
-      el.classList.add('active')
-      const cfg = roleLabels[el.dataset.role]
+    function handleRoleChange() {
+      const role = document.getElementById('roleSelect').value
+      const cfg  = roleLabels[role]
       document.getElementById('idLabel').textContent   = cfg.label
       document.getElementById('loginId').placeholder   = cfg.ph
       document.getElementById('signInBtn').textContent = cfg.btn
+
+      // Selecting Admin surfaces demo credentials for the examiner/tester; switching
+      // back to Student hides it immediately so the interface stays clean.
+      document.getElementById('adminHintBox').style.display = role === 'admin' ? 'block' : 'none'
     }
 
     async function handleLogin(e) {
@@ -117,8 +136,7 @@
       if (error) {
         alertEl.innerHTML = `<div class="alert alert-error">${error.message}</div>`
         btn.disabled  = false
-        btn.textContent   = document.querySelector('#roleTabsLogin .role-tab.active').dataset.role === 'student'
-          ? 'Sign In as Student →' : 'Sign In →'
+        btn.textContent   = roleLabels[document.getElementById('roleSelect').value].btn
         return
       }
 

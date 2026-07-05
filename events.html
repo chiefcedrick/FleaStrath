@@ -8,15 +8,23 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/supabase.js"></script>
 </head>
-<body class="has-bnav">
+<body>
 
-  <header class="pub-header">
-    <button class="icon-btn" onclick="toggleMobileMenu()">☰</button>
-    <a href="index.html" class="pub-logo">
-      <span class="pub-logo-icon">🏛</span>
+  <header class="topnav">
+    <a href="index.html" class="topnav-logo">
+      <span class="topnav-logo-icon">🏛</span>
       <span>Strathmore Marketplace</span>
     </a>
-    <button class="icon-btn" onclick="location.href='marketplace.html'">🔍</button>
+    <button class="topnav-toggle" id="topnavToggle" onclick="toggleTopNav()" aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <nav class="topnav-links" id="topnavLinks">
+      <a href="index.html" class="topnav-link" data-page="index.html">Home</a>
+      <a href="marketplace.html" class="topnav-link" data-page="marketplace.html">Browse</a>
+      <a href="events.html" class="topnav-link" data-page="events.html">Events</a>
+      <a href="news.html" class="topnav-link" data-page="news.html">News</a>
+      <span class="topnav-auth" id="topnavAuth"></span>
+    </nav>
   </header>
 
   <main style="padding:22px 18px 80px">
@@ -64,13 +72,6 @@
       </div>
     </div>
   </footer>
-
-  <nav class="bottom-nav">
-    <button class="bnav-item" onclick="location.href='index.html'"><span class="bnav-icon">🏠</span>Home</button>
-    <button class="bnav-item active" onclick="location.href='events.html'"><span class="bnav-icon">📅</span>Events</button>
-    <button class="bnav-item" onclick="location.href='register.html'"><span class="bnav-icon">🏷️</span>Sell</button>
-    <button class="bnav-item" onclick="location.href='login.html'"><span class="bnav-icon">👤</span>Profile</button>
-  </nav>
 
   <script src="js/main.js"></script>
   <script>

@@ -14,15 +14,32 @@ function closeSidebar() {
   if (overlay) overlay.classList.remove('show');
 }
 
-/* Public pages use a simple mobile nav drawer */
-function toggleMobileMenu() {
-  /* No full drawer on public pages — placeholder for future nav */
+/* ── Top navbar toggle (mobile hamburger → slide-down drawer) ── */
+function toggleTopNav() {
+  document.getElementById('topnavLinks')?.classList.toggle('open');
+  document.getElementById('topnavToggle')?.classList.toggle('open');
 }
 
-/* ── Close sidebar on desktop resize ── */
+function closeTopNav() {
+  document.getElementById('topnavLinks')?.classList.remove('open');
+  document.getElementById('topnavToggle')?.classList.remove('open');
+}
+
+/* Right-hand side of the top navbar swaps between Login/Sign Up and Dashboard/Logout */
+async function renderTopnavAuth() {
+  const slot = document.getElementById('topnavAuth');
+  if (!slot) return;
+  const session = await getSession();
+  slot.innerHTML = session
+    ? `<a href="marketplace.html" class="topnav-link">Dashboard</a><button class="topnav-logout" onclick="logout()">Logout</button>`
+    : `<a href="login.html" class="topnav-link">Login</a><a href="register.html" class="btn btn-primary btn-sm">Sign Up</a>`;
+}
+
+/* ── Close sidebar / top navbar drawer on desktop resize ── */
 window.addEventListener('resize', () => {
   if (window.innerWidth > 768) {
     closeSidebar();
+    closeTopNav();
   }
 });
 
@@ -114,7 +131,12 @@ function showToast(msg) {
       item.classList.add('active');
     }
   });
+  document.querySelectorAll('.topnav-link[data-page]').forEach(item => {
+    if (item.dataset.page === path) item.classList.add('active');
+  });
 })();
+
+renderTopnavAuth();
 
 /* ── Pagination ── */
 document.addEventListener('click', (e) => {
