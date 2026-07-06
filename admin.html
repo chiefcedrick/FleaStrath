@@ -12,22 +12,15 @@
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
 
 <aside class="sidebar" id="sidebar">
-  <div class="sidebar-logo">🏛 Strathmore</div>
+  <div class="sidebar-logo">🏛 Strathmore Marketplace</div>
   <div class="sidebar-user">
-    <div class="avatar" id="sidebarAvatar">AD</div>
+    <div class="avatar" id="sidebarAvatar">A</div>
     <div>
-      <div class="sidebar-uname" id="sidebarName">Administrator</div>
+      <div class="sidebar-uname" id="sidebarName">Loading…</div>
       <div class="sidebar-urole" id="sidebarRole">Administrator</div>
     </div>
   </div>
-  <nav class="sidebar-nav">
-    <a class="nav-item" href="marketplace.html"><span class="nav-icon">🏪</span>Marketplace</a>
-    <a class="nav-item" href="my-shop.html"><span class="nav-icon">🏷️</span>My Shop</a>
-    <a class="nav-item active" href="admin.html"><span class="nav-icon">📊</span>Analytics</a>
-    <a class="nav-item" href="orders.html"><span class="nav-icon">📦</span>Orders</a>
-    <a class="nav-item" href="settings.html"><span class="nav-icon">⚙️</span>Settings</a>
-    <a class="nav-item" href="#" onclick="logout();return false" style="margin-top:auto;color:var(--red)"><span class="nav-icon">🚪</span>Sign Out</a>
-  </nav>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
   <div class="sidebar-foot">© 2024 Marketplace Admin</div>
 </aside>
 
@@ -51,7 +44,9 @@
       <div class="page-head"><h1>System Overview</h1></div>
 
       <!-- Stats -->
-      <div class="stats-grid" id="statsGrid">
+      <div class="stats-grid-6" id="statsGrid">
+        <div class="stat-card"><div class="spinner-wrap"><div class="spinner"></div></div></div>
+        <div class="stat-card"><div class="spinner-wrap"><div class="spinner"></div></div></div>
         <div class="stat-card"><div class="spinner-wrap"><div class="spinner"></div></div></div>
         <div class="stat-card"><div class="spinner-wrap"><div class="spinner"></div></div></div>
         <div class="stat-card"><div class="spinner-wrap"><div class="spinner"></div></div></div>
@@ -60,21 +55,24 @@
 
       <div class="admin-grid">
 
-        <!-- Pending Verifications -->
+        <!-- Recent Registrations -->
         <div class="card">
           <div style="padding:13px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-            <h3>Pending Verifications</h3>
-            <span style="font-size:0.8rem;color:var(--text-3)" id="pendingCount">—</span>
+            <h3>Recent Registrations</h3>
+            <a href="admin-users.html" style="font-size:0.8rem;font-weight:700;color:var(--navy)">View All →</a>
           </div>
-          <div id="pendingTable">
+          <div id="recentRegistrations">
             <div class="spinner-wrap"><div class="spinner"></div></div>
           </div>
         </div>
 
-        <!-- Recent Activity -->
-        <div class="card" style="padding:16px">
-          <h3 style="margin-bottom:16px">Recent Activity</h3>
-          <div class="activity-feed" id="activityFeed">
+        <!-- Recent Listings -->
+        <div class="card">
+          <div style="padding:13px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+            <h3>Recent Listings</h3>
+            <a href="admin-products.html" style="font-size:0.8rem;font-weight:700;color:var(--navy)">View All →</a>
+          </div>
+          <div id="recentListings">
             <div class="spinner-wrap"><div class="spinner"></div></div>
           </div>
         </div>
@@ -86,20 +84,20 @@
         <div class="tool-card">
           <div class="tool-icon">📅</div>
           <div class="tool-title">Market Day Planner</div>
-          <div class="tool-desc">Coordinate stall allocations and security schedules for the next university flea market.</div>
-          <button class="btn btn-outline btn-sm btn-full" onclick="location.href='events.html'">Configure Event</button>
+          <div class="tool-desc">Create and manage upcoming flea market events — dates, locations, and stall schedules.</div>
+          <button class="btn btn-outline btn-sm btn-full" onclick="location.href='admin-events.html'">Manage Events</button>
         </div>
         <div class="tool-card">
-          <div class="tool-icon">🔍</div>
-          <div class="tool-title">Marketplace Audit</div>
-          <div class="tool-desc">Review system logs and financial transactions to ensure compliance with university guidelines.</div>
-          <button class="btn btn-outline btn-sm btn-full">Run Audit Report</button>
+          <div class="tool-icon">📈</div>
+          <div class="tool-title">Marketplace Reports</div>
+          <div class="tool-desc">View products-by-category, vendor registrations, active listings, and system statistics.</div>
+          <button class="btn btn-outline btn-sm btn-full" onclick="location.href='admin-reports.html'">View Reports</button>
         </div>
         <div class="tool-card">
           <div class="tool-icon">🎧</div>
           <div class="tool-title">Admin Support</div>
-          <div class="tool-desc" id="supportDesc">Respond to open support tickets from vendors regarding account issues.</div>
-          <button class="btn btn-outline btn-sm btn-full">Open Tickets</button>
+          <div class="tool-desc">Need help with a platform issue? Reach the IT support team directly.</div>
+          <a class="btn btn-outline btn-sm btn-full" href="mailto:admin-support@strathmore.edu">Contact IT Support</a>
         </div>
       </div>
 
@@ -108,9 +106,9 @@
     <footer style="border-top:1px solid var(--border);padding:14px 22px;display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;color:var(--text-3);flex-wrap:wrap;gap:6px;background:white">
       <span>© 2024 Strathmore University Flea Market</span>
       <div style="display:flex;gap:16px">
-        <a href="#">Privacy Policy</a>
-        <a href="#">Help Center</a>
-        <a href="#" style="font-weight:700;color:var(--navy)">Contact IT Support</a>
+        <a href="legal.html#privacy">Privacy Policy</a>
+        <a href="legal.html#help">Help Center</a>
+        <a href="mailto:admin-support@strathmore.edu" style="font-weight:700;color:var(--navy)">Contact IT Support</a>
       </div>
     </footer>
   </main>
@@ -156,131 +154,64 @@
   async function loadStats() {
     const grid = document.getElementById('statsGrid')
 
-    const [users, vendors, products, events] = await Promise.all([
+    const [users, vendors, products, categories, events, announcements] = await Promise.all([
       sb.from('users').select('*', { count:'exact', head:true }),
       sb.from('users').select('*', { count:'exact', head:true }).eq('role','vendor'),
-      sb.from('products').select('*', { count:'exact', head:true }).eq('status','active'),
-      sb.from('events').select('*', { count:'exact', head:true }).in('status',['upcoming','available']),
+      sb.from('products').select('*', { count:'exact', head:true }),
+      sb.from('categories').select('*', { count:'exact', head:true }),
+      sb.from('events').select('*', { count:'exact', head:true }),
+      sb.from('announcements').select('*', { count:'exact', head:true }),
     ])
 
-    grid.innerHTML = `
+    const cards = [
+      { icon:'👥', label:'Total Users',      val:users.count },
+      { icon:'🏪', label:'Total Vendors',    val:vendors.count },
+      { icon:'🏷️', label:'Total Products',   val:products.count },
+      { icon:'📂', label:'Total Categories', val:categories.count },
+      { icon:'📅', label:'Total Events',     val:events.count },
+      { icon:'📢', label:'Announcements',    val:announcements.count },
+    ]
+    grid.innerHTML = cards.map(c => `
       <div class="stat-card">
-        <div class="stat-head"><div class="stat-icon">👥</div><span class="stat-change pos">Live</span></div>
-        <div class="stat-label">Total Users</div>
-        <div class="stat-val">${(users.count||0).toLocaleString()}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-head"><div class="stat-icon">🏪</div><span class="stat-change pos">Live</span></div>
-        <div class="stat-label">Active Vendors</div>
-        <div class="stat-val">${(vendors.count||0).toLocaleString()}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-head"><div class="stat-icon">🏷️</div><span class="stat-change stbl">Live</span></div>
-        <div class="stat-label">Live Products</div>
-        <div class="stat-val">${(products.count||0).toLocaleString()}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-head"><div class="stat-icon">📅</div><span class="stat-change stbl">Stable</span></div>
-        <div class="stat-label">Upcoming Events</div>
-        <div class="stat-val">${(events.count||0).toLocaleString()}</div>
-      </div>`
-  }
-
-  async function loadPending() {
-    const el      = document.getElementById('pendingTable')
-    const countEl = document.getElementById('pendingCount')
-
-    const { data, error, count } = await sb.from('users')
-      .select('*', { count:'exact' })
-      .eq('role','vendor').eq('verified',false)
-      .order('created_at',{ascending:false}).limit(5)
-
-    if (error) { showError(el, 'Failed to load verifications.'); return }
-    countEl.textContent = count ? `${count} pending` : '0 pending'
-
-    if (!data?.length) { showEmpty(el, 'No pending verifications 🎉'); return }
-
-    el.innerHTML = `
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Applicant</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody>
-          ${data.map(u => {
-            const initials = (u.full_name||u.email||'U').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)
-            return `<tr>
-              <td>
-                <div class="tbl-user">
-                  <div class="avatar avatar-sm">${initials}</div>
-                  <div>
-                    <div class="tbl-uname">${u.full_name||u.email}</div>
-                    <div class="tbl-usub">${u.email}</div>
-                  </div>
-                </div>
-              </td>
-              <td><span class="badge badge-gray">${u.role}</span></td>
-              <td>
-                <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem">
-                  <span style="width:8px;height:8px;border-radius:50%;background:var(--yellow);display:inline-block"></span>
-                  Pending Review
-                </div>
-              </td>
-              <td>
-                <div class="tbl-actions">
-                  <button class="action-icon-btn" onclick="approveVendor('${u.id}')" title="Approve">✅</button>
-                  <button class="action-icon-btn del" onclick="rejectVendor('${u.id}')" title="Reject">✕</button>
-                </div>
-              </td>
-            </tr>`
-          }).join('')}
-        </tbody>
-      </table>
-    </div>`
-  }
-
-  async function loadActivity() {
-    const el = document.getElementById('activityFeed')
-    const { data } = await sb.from('orders')
-      .select('*, buyer:users(full_name), product:products(title)')
-      .order('created_at',{ascending:false}).limit(5)
-
-    if (!data?.length) {
-      // Show announcements as activity fallback
-      const { data: anns } = await sb.from('announcements').select('*').order('created_at',{ascending:false}).limit(4)
-      if (!anns?.length) { showEmpty(el,'No recent activity.'); return }
-      el.innerHTML = anns.map(a => `
-        <div class="activity-item">
-          <div class="act-icon">📢</div>
-          <div>
-            <div class="act-title">${a.title}</div>
-            <div class="act-desc">${(a.body||'').slice(0,60)}…</div>
-            <div class="act-time">${timeAgo(a.created_at)}</div>
-          </div>
-        </div>`).join('')
-      return
-    }
-
-    el.innerHTML = data.map(o => `
-      <div class="activity-item">
-        <div class="act-icon">📦</div>
-        <div>
-          <div class="act-title">New Order</div>
-          <div class="act-desc">${o.buyer?.full_name||'A buyer'} ordered "${o.product?.title||'an item'}"</div>
-          <div class="act-time">${timeAgo(o.created_at)}</div>
-        </div>
+        <div class="stat-head"><div class="stat-icon">${c.icon}</div></div>
+        <div class="stat-label">${c.label}</div>
+        <div class="stat-val">${(c.val||0).toLocaleString()}</div>
       </div>`).join('')
   }
 
-  async function approveVendor(id) {
-    await sb.from('users').update({ verified: true }).eq('id', id)
-    showToast('✅ Vendor approved!')
-    loadPending(); loadStats()
+  async function loadRecentRegistrations() {
+    const el = document.getElementById('recentRegistrations')
+    const { data, error } = await sb.from('users').select('*').order('created_at',{ascending:false}).limit(5)
+    if (error) { showError(el, 'Failed to load recent registrations.'); return }
+    if (!data?.length) { showEmpty(el, 'No registrations yet.'); return }
+    el.innerHTML = data.map(u => {
+      const initials = (u.full_name||u.email||'U').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)
+      return `
+      <div class="activity-item">
+        <div class="avatar avatar-sm">${initials}</div>
+        <div>
+          <div class="act-title">${u.full_name || u.email} <span class="badge badge-gray">${u.role}</span></div>
+          <div class="act-desc">${u.email}</div>
+          <div class="act-time">${timeAgo(u.created_at)}</div>
+        </div>
+      </div>`
+    }).join('')
   }
 
-  async function rejectVendor(id) {
-    if (!confirm('Reject this vendor application?')) return
-    await sb.from('users').update({ role: 'student', verified: false }).eq('id', id)
-    showToast('Vendor application rejected.')
-    loadPending(); loadStats()
+  async function loadRecentListings() {
+    const el = document.getElementById('recentListings')
+    const { data, error } = await sb.from('products').select('*, users(full_name)').order('created_at',{ascending:false}).limit(5)
+    if (error) { showError(el, 'Failed to load recent listings.'); return }
+    if (!data?.length) { showEmpty(el, 'No listings yet.'); return }
+    el.innerHTML = data.map(p => `
+      <div class="activity-item">
+        <div class="act-icon">${catEmoji(p.category)}</div>
+        <div>
+          <div class="act-title">${p.title} · ${fmtPrice(p.price)}</div>
+          <div class="act-desc">by ${p.users?.full_name || 'Unknown seller'}</div>
+          <div class="act-time">${timeAgo(p.created_at)}</div>
+        </div>
+      </div>`).join('')
   }
 
   function openBroadcast()  { document.getElementById('broadcastModal').style.display = 'flex' }
@@ -307,8 +238,8 @@
     if (!profile) return
     populateSidebar()
     loadStats()
-    loadPending()
-    loadActivity()
+    loadRecentRegistrations()
+    loadRecentListings()
   })
 </script>
 </body>

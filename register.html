@@ -26,12 +26,12 @@
 
         <div class="form-group">
           <label class="form-label">Full Name</label>
-          <input class="form-input" id="regName" type="text" placeholder="John Doe" required>
+          <input class="form-input" id="regName" type="text" placeholder="e.g. Amina Wanjiru" required>
         </div>
 
         <div class="form-group">
           <label class="form-label">Username</label>
-          <input class="form-input" id="regUsername" type="text" placeholder="johndoe24" required>
+          <input class="form-input" id="regUsername" type="text" placeholder="e.g. amina.w24" required>
         </div>
 
         <div class="form-group">
@@ -67,7 +67,7 @@
 
         <label class="check-row">
           <input type="checkbox" id="regTerms" required>
-          <span>I agree to the <a href="#" style="color:var(--navy);font-weight:700">Terms of Service</a> and <a href="#" style="color:var(--navy);font-weight:700">Privacy Policy</a>.</span>
+          <span>I agree to the <a href="legal.html#terms" target="_blank" style="color:var(--navy);font-weight:700">Terms of Service</a> and <a href="legal.html#privacy" target="_blank" style="color:var(--navy);font-weight:700">Privacy Policy</a>.</span>
         </label>
 
         <button type="submit" class="btn btn-primary btn-full btn-lg" id="regBtn">Create Account</button>
@@ -82,12 +82,12 @@
   <footer class="auth-foot">
     <p><strong>Strathmore Flea Market</strong></p>
     <p>
-      <a href="#">Terms of Service</a>
-      <a href="#">Privacy Policy</a>
-      <a href="#">Help Center</a>
+      <a href="legal.html#terms">Terms of Service</a>
+      <a href="legal.html#privacy">Privacy Policy</a>
+      <a href="legal.html#help">Help Center</a>
     </p>
     <p style="margin-top:6px">
-      <a href="#">Contact Admin</a> &nbsp;·&nbsp;
+      <a href="mailto:admin-support@strathmore.edu">Contact Admin</a> &nbsp;·&nbsp;
       © 2024 Strathmore University Flea Market
     </p>
   </footer>
@@ -106,8 +106,9 @@
       const btn     = document.getElementById('regBtn')
       alertEl.innerHTML = ''
 
-      const pass  = document.getElementById('regPass').value
-      const pass2 = document.getElementById('regPass2').value
+      const pass     = document.getElementById('regPass').value
+      const pass2    = document.getElementById('regPass2').value
+      const username = document.getElementById('regUsername').value.trim()
       if (pass !== pass2) {
         alertEl.innerHTML = '<div class="alert alert-error">Passwords do not match.</div>'
         return
@@ -116,6 +117,19 @@
       const role  = document.querySelector('#regTabs .role-tab.active').dataset.type
       const email = document.getElementById('regEmail').value.trim()
       btn.disabled    = true
+      btn.textContent = 'Checking username…'
+
+      // Best-effort duplicate-username check before we even try to sign up —
+      // the database's own unique constraint is still the real enforcement,
+      // but this gives a friendly message instead of a raw Postgres error.
+      const { data: existing } = await sb.from('users').select('id').eq('username', username).maybeSingle()
+      if (existing) {
+        alertEl.innerHTML = '<div class="alert alert-error">That username is already taken. Please choose another.</div>'
+        btn.disabled    = false
+        btn.textContent = 'Create Account'
+        return
+      }
+
       btn.textContent = 'Creating account…'
 
       // 1. Sign up with Supabase Auth. Profile fields ride along as user_metadata so
@@ -153,8 +167,19 @@
       setTimeout(() => { location.href = 'verify-otp.html' }, 1200)
     }
 
-    // Redirect if already logged in
-    getSession().then(s => { if (s) location.href = 'marketplace.html' })
+    // Pre-select Student/Vendor tab from a ?type= link (e.g. from the homepage CTA)
+    const typeParam = new URLSearchParams(location.search).get('type')
+    if (typeParam === 'vendor') {
+      const vendorTab = document.querySelector('#regTabs [data-type="vendor"]')
+      if (vendorTab) switchRegType(vendorTab)
+    }
+
+    // Redirect if already logged in — to the role's own dashboard, not a fixed page
+    getSession().then(async s => {
+      if (!s) return
+      const { data: profile } = await sb.from('users').select('role').eq('id', s.user.id).single()
+      location.href = dashboardFor(profile?.role || 'student')
+    })
   </script>
 </body>
 </html>

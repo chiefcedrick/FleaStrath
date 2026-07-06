@@ -27,21 +27,102 @@ async function requireAuth() {
   return session
 }
 
-async function requireAdmin() {
+/* ── Role-based routing ──
+   dashboardFor() is the single source of truth for "where does this role
+   land after login" — used by login.html and by every requireRole() redirect,
+   so a misrouted user always ends up on THEIR OWN dashboard, never a
+   one-size-fits-all fallback page. */
+function dashboardFor(role) {
+  if (role === 'admin')  return 'admin.html'
+  if (role === 'vendor') return 'vendor-dashboard.html'
+  return 'student-dashboard.html'
+}
+
+async function requireRole(expectedRole) {
   const profile = await getProfile()
-  if (!profile || profile.role !== 'admin') { location.href = 'marketplace.html'; return null }
+  if (!profile) { location.href = 'login.html'; return null }
+  if (profile.role !== expectedRole) { location.href = dashboardFor(profile.role); return null }
   return profile
 }
+
+async function requireAdmin()  { return requireRole('admin') }
+async function requireVendor() { return requireRole('vendor') }
+async function requireStudent(){ return requireRole('student') }
 
 async function logout() {
   await sb.auth.signOut()
   location.href = 'login.html'
 }
 
+/* ── Role-based sidebar nav ──
+   One shared definition per role instead of the same nav block copy-pasted
+   into every page (which is how marketplace.html ended up with dead
+   href="#" links that were never updated when orders.html/settings.html
+   were added). Every page with a sidebar now renders an empty
+   <nav id="sidebarNav"> and gets it filled in here, driven by the actual
+   logged-in user's role — so a vendor browsing a shared page like
+   marketplace.html still sees the vendor nav, not a generic one. */
+const SIDEBAR_NAV = {
+  student: [
+    { label: 'Dashboard',      icon: '🏠',  href: 'student-dashboard.html' },
+    { label: 'Products',      icon: '🏪',  href: 'marketplace.html' },
+    { label: 'Categories',    icon: '🏷️', href: 'marketplace.html' },
+    { label: 'Events',        icon: '📅',  href: 'events.html' },
+    { label: 'Announcements', icon: '📰',  href: 'news.html' },
+    { label: 'Profile',       icon: '⚙️',  href: 'settings.html' },
+  ],
+  vendor: [
+    { label: 'Dashboard',     icon: '🏠',  href: 'vendor-dashboard.html' },
+    { label: 'My Products',   icon: '🏷️', href: 'my-shop.html' },
+    { label: 'Add Product',   icon: '➕',  href: 'my-shop.html?action=add' },
+    { label: 'Edit Product',  icon: '✏️',  href: 'my-shop.html' },
+    { label: 'Profile',       icon: '⚙️',  href: 'settings.html' },
+  ],
+  admin: [
+    { label: 'Dashboard',     icon: '📊',  href: 'admin.html' },
+    { label: 'Users',         icon: '👥',  href: 'admin-users.html' },
+    { label: 'Vendors',       icon: '🏪',  href: 'admin-vendors.html' },
+    { label: 'Products',     icon: '📦',  href: 'admin-products.html' },
+    { label: 'Categories',    icon: '🏷️', href: 'admin-categories.html' },
+    { label: 'Events',        icon: '📅',  href: 'admin-events.html' },
+    { label: 'Announcements', icon: '📰',  href: 'admin-announcements.html' },
+    { label: 'Reports',       icon: '📈',  href: 'admin-reports.html' },
+    { label: 'Settings',      icon: '⚙️',  href: 'settings.html' },
+  ],
+}
+
+function buildSidebarNavHtml(role) {
+  const items = SIDEBAR_NAV[role] || SIDEBAR_NAV.student
+  const links = items.map(i =>
+    `<a class="nav-item" href="${i.href}"><span class="nav-icon">${i.icon}</span>${i.label}</a>`
+  ).join('')
+  const signOut = `<a class="nav-item" href="#" onclick="logout();return false" style="margin-top:auto;color:var(--red)"><span class="nav-icon">🚪</span>Sign Out</a>`
+  return links + signOut
+}
+
+/* Self-contained on purpose: js/main.js's highlightNav() IIFE runs
+   synchronously the instant main.js parses, which is BEFORE this async
+   sidebar fetch resolves — so it would never see these injected nav-items.
+   Highlighting the sidebar has to happen right here, right after injection. */
+function highlightSidebarNav() {
+  const path = location.pathname.split('/').pop() || 'index.html'
+  document.querySelectorAll('#sidebarNav .nav-item').forEach(item => {
+    const hrefPath = (item.getAttribute('href') || '').split('?')[0].split('/').pop()
+    if (hrefPath && hrefPath === path) item.classList.add('active')
+  })
+}
+
+function renderSidebar(profile) {
+  const el = document.getElementById('sidebarNav')
+  if (!el) return
+  el.innerHTML = buildSidebarNavHtml(profile.role)
+  highlightSidebarNav()
+}
+
 /* ── Sidebar population ── */
 async function populateSidebar() {
   const profile = await getProfile()
-  if (!profile) return
+  if (!profile) return null
   const initials = (profile.full_name || profile.email || 'U')
     .split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
   const el = document.getElementById('sidebarAvatar')
@@ -52,13 +133,32 @@ async function populateSidebar() {
   if (nm) nm.textContent = profile.full_name || profile.email
   if (rl) rl.textContent = profile.role === 'admin' ? 'Administrator' : profile.role === 'vendor' ? 'Verified Vendor' : 'Student'
   if (ft) ft.textContent = 'Student ID: ' + (profile.student_id || profile.id.slice(0, 8))
+  renderSidebar(profile)
+  return profile
+}
+
+/* ── Categories (live DB table, cached after first fetch this page load) ──
+   Replaces the hardcoded category lists previously duplicated across
+   marketplace.html/my-shop.html/js/supabase.js. */
+let _categoriesCache = null
+async function getCategories() {
+  if (_categoriesCache) return _categoriesCache
+  const { data, error } = await sb.from('categories').select('*').order('name')
+  _categoriesCache = (!error && data) ? data : []
+  return _categoriesCache
 }
 
 /* ── Rendering helpers ── */
 function catEmoji(cat) {
+  const slug = (cat || '').toLowerCase()
+  if (_categoriesCache) {
+    const found = _categoriesCache.find(c => c.slug === slug)
+    if (found) return found.icon
+  }
+  // Fallback for the brief window before getCategories() resolves, or if it fails.
   const map = { textbooks: '📚', electronics: '💻', furniture: '🪑',
-    accessories: '💼', clothing: '👕', 'lab-gear': '🔬', books: '📖', default: '🏷️' }
-  return map[(cat || '').toLowerCase()] || map.default
+    accessories: '💼', clothing: '👕', 'lab-gear': '🔬', books: '📖', shoes: '👟', food: '🍎', default: '🏷️' }
+  return map[slug] || map.default
 }
 
 function fmtPrice(n) {
@@ -97,10 +197,11 @@ function tagClass(tag) {
 function productStackCard(p) {
   const badge = p.is_negotiable
     ? `<span class="product-badge badge-neg" style="background:rgba(255,255,255,.9);color:#111">NEGOTIABLE</span>` : ''
+  const img = p.image_url ? `<img src="${p.image_url}" alt="${p.title}" style="width:100%;height:100%;object-fit:cover">` : `<span>${catEmoji(p.category)}</span>`
   return `
   <div class="product-card">
     <div class="product-card-img">
-      <span>${catEmoji(p.category)}</span>
+      ${img}
       ${badge}
     </div>
     <div class="product-card-body">
@@ -109,7 +210,7 @@ function productStackCard(p) {
       <div class="product-card-desc">${p.description || ''}</div>
       <div class="product-card-foot">
         <span class="product-price">${fmtPrice(p.price)}</span>
-        <button class="icon-btn cart-btn">🛒</button>
+        <a href="product.html?id=${p.id}" class="btn btn-outline btn-sm">View Details</a>
       </div>
     </div>
   </div>`
@@ -120,10 +221,11 @@ function productGridCard(p) {
   const badge = p.is_negotiable
     ? `<span class="product-badge badge-neg" style="top:10px;left:10px;position:absolute;background:rgba(255,255,255,.9);color:#111">Negotiable</span>`
     : isNew ? `<span class="product-badge badge-new" style="top:10px;left:10px;position:absolute">New Listing</span>` : ''
+  const img = p.image_url ? `<img src="${p.image_url}" alt="${p.title}" style="width:100%;height:100%;object-fit:cover">` : catEmoji(p.category)
   return `
   <div class="pgrid-card">
     <div class="pgrid-img">
-      ${catEmoji(p.category)}
+      ${img}
       ${badge}
     </div>
     <div class="pgrid-body">
@@ -134,7 +236,7 @@ function productGridCard(p) {
       <div class="pgrid-desc">${p.description || ''}</div>
       <div class="pgrid-foot">
         <span class="product-price">${fmtPrice(p.price)}</span>
-        <button class="cart-btn">🛒</button>
+        <a href="product.html?id=${p.id}" class="btn btn-primary btn-sm">View Details</a>
       </div>
     </div>
   </div>`
@@ -196,7 +298,6 @@ function newsCard(a) {
     <div class="news-author">
       <div class="avatar avatar-sm">${initials}</div>
       <span>${author}</span>
-      <a href="#" class="news-read" style="margin-left:auto">READ MORE →</a>
     </div>
   </div>`
 }

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Events – Strathmore Admin</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">🏛 Strathmore Marketplace</div>
+  <div class="sidebar-user">
+    <div class="avatar" id="sidebarAvatar">A</div>
+    <div>
+      <div class="sidebar-uname" id="sidebarName">Loading…</div>
+      <div class="sidebar-urole" id="sidebarRole">Administrator</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
+  <div class="sidebar-foot">© 2024 Marketplace Admin</div>
+</aside>
+
+<div class="app-layout">
+  <main class="app-main">
+
+    <div class="app-topbar">
+      <button class="icon-btn" onclick="toggleSidebar()">☰</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-primary btn-sm" onclick="openEventModal()">+ Add Event</button>
+    </div>
+
+    <div class="app-content">
+      <div class="page-head"><div><h1>Manage Events</h1><p class="page-sub">Create and update flea market events students will see on the Events page.</p></div></div>
+
+      <div class="card">
+        <table class="data-table" style="width:100%">
+          <thead><tr><th>Event</th><th>Location</th><th>Date</th><th>Status</th><th></th></tr></thead>
+          <tbody id="eventsTable">
+            <tr><td colspan="5"><div class="spinner-wrap"><div class="spinner"></div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Add/Edit Event Modal -->
+<div class="modal-overlay" id="eventModal" style="display:none">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="eventModalTitle">Add Event</h3>
+      <button class="modal-close" onclick="closeEventModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="eventModalAlert"></div>
+      <input type="hidden" id="eventId">
+      <div class="form-group">
+        <label class="form-label">Event Name</label>
+        <input class="form-input" id="evName" placeholder="e.g. Mega Student Bazaar" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Location</label>
+        <input class="form-input" id="evLocation" placeholder="e.g. Main Auditorium Plaza">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input class="form-input" id="evDate" type="date">
+      </div>
+      <div class="form-group" style="display:flex;gap:10px">
+        <div style="flex:1">
+          <label class="form-label">Start Time</label>
+          <input class="form-input" id="evStart" type="time">
+        </div>
+        <div style="flex:1">
+          <label class="form-label">End Time</label>
+          <input class="form-input" id="evEnd" type="time">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea class="form-input" id="evDesc" rows="3" style="resize:vertical"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select class="form-input" id="evStatus">
+          <option value="upcoming">Upcoming</option>
+          <option value="available">Available</option>
+          <option value="ongoing">Ongoing</option>
+          <option value="coming-soon">Coming Soon</option>
+        </select>
+      </div>
+      <label class="check-row">
+        <input type="checkbox" id="evFeatured">
+        <span>Feature this event</span>
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-outline btn-sm" onclick="closeEventModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveEvent()">Save Event</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/main.js"></script>
+<script>
+  let allEvents = []
+
+  async function loadEvents() {
+    const tbody = document.getElementById('eventsTable')
+    const { data, error } = await sb.from('events').select('*').order('event_date',{ascending:true})
+    if (error) { tbody.innerHTML = `<tr><td colspan="5"><div class="alert alert-error">Failed to load events.</div></td></tr>`; return }
+    allEvents = data || []
+    if (!allEvents.length) { tbody.innerHTML = `<tr><td colspan="5">No events yet.</td></tr>`; return }
+
+    tbody.innerHTML = allEvents.map(e => `
+      <tr>
+        <td style="font-weight:600">${e.is_featured ? '⭐ ' : ''}${e.name}</td>
+        <td style="font-size:0.82rem;color:var(--text-3)">${e.location || '—'}</td>
+        <td style="font-size:0.82rem">${fmtDate(e.event_date)}</td>
+        <td><span class="badge badge-gray">${(e.status||'upcoming').replace('-',' ')}</span></td>
+        <td>
+          <div class="tbl-actions">
+            <button class="action-icon-btn" onclick="editEvent('${e.id}')" title="Edit">✏️</button>
+            <button class="action-icon-btn del" onclick="deleteEvent('${e.id}')" title="Delete">🗑️</button>
+          </div>
+        </td>
+      </tr>`).join('')
+  }
+
+  function openEventModal(ev = null) {
+    document.getElementById('eventModalTitle').textContent = ev ? 'Edit Event' : 'Add Event'
+    document.getElementById('eventId').value = ev?.id || ''
+    document.getElementById('evName').value = ev?.name || ''
+    document.getElementById('evLocation').value = ev?.location || ''
+    document.getElementById('evDate').value = ev?.event_date || ''
+    document.getElementById('evStart').value = ev?.start_time || ''
+    document.getElementById('evEnd').value = ev?.end_time || ''
+    document.getElementById('evDesc').value = ev?.description || ''
+    document.getElementById('evStatus').value = ev?.status || 'upcoming'
+    document.getElementById('evFeatured').checked = ev?.is_featured || false
+    document.getElementById('eventModalAlert').innerHTML = ''
+    document.getElementById('eventModal').style.display = 'flex'
+  }
+  function closeEventModal() { document.getElementById('eventModal').style.display = 'none' }
+
+  function editEvent(id) {
+    const e = allEvents.find(e => e.id === id)
+    if (e) openEventModal(e)
+  }
+
+  async function saveEvent() {
+    const alertEl = document.getElementById('eventModalAlert')
+    const name = document.getElementById('evName').value.trim()
+    if (!name) { alertEl.innerHTML = '<div class="alert alert-error">Event name is required.</div>'; return }
+
+    const payload = {
+      name,
+      location:    document.getElementById('evLocation').value.trim(),
+      event_date:  document.getElementById('evDate').value || null,
+      start_time:  document.getElementById('evStart').value,
+      end_time:    document.getElementById('evEnd').value,
+      description: document.getElementById('evDesc').value.trim(),
+      status:      document.getElementById('evStatus').value,
+      is_featured: document.getElementById('evFeatured').checked,
+    }
+
+    const id = document.getElementById('eventId').value
+    const { error } = id
+      ? await sb.from('events').update(payload).eq('id', id)
+      : await sb.from('events').insert(payload)
+
+    if (error) { alertEl.innerHTML = `<div class="alert alert-error">${error.message}</div>`; return }
+    closeEventModal()
+    showToast('✅ Event saved.')
+    loadEvents()
+  }
+
+  async function deleteEvent(id) {
+    if (!confirm('Delete this event?')) return
+    const { error } = await sb.from('events').delete().eq('id', id)
+    if (error) { showToast('Error deleting event.'); return }
+    showToast('🗑️ Event deleted.')
+    loadEvents()
+  }
+
+  requireRole('admin').then(async profile => {
+    if (!profile) return
+    await populateSidebar()
+    loadEvents()
+  })
+</script>
+</body>
+</html>

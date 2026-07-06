@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Users – Strathmore Admin</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">🏛 Strathmore Marketplace</div>
+  <div class="sidebar-user">
+    <div class="avatar" id="sidebarAvatar">A</div>
+    <div>
+      <div class="sidebar-uname" id="sidebarName">Loading…</div>
+      <div class="sidebar-urole" id="sidebarRole">Administrator</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
+  <div class="sidebar-foot">© 2024 Marketplace Admin</div>
+</aside>
+
+<div class="app-layout">
+  <main class="app-main">
+
+    <div class="app-topbar">
+      <button class="icon-btn" onclick="toggleSidebar()">☰</button>
+      <div class="topbar-search">
+        <span class="topbar-search-icon">🔍</span>
+        <input type="text" id="userSearch" placeholder="Search by name, username, or email…" oninput="filterUsers()">
+      </div>
+    </div>
+
+    <div class="app-content">
+      <div class="page-head"><div><h1>Manage Users</h1><p class="page-sub">All registered accounts across every role.</p></div></div>
+
+      <div class="pill-row" id="roleFilterPills" style="margin-bottom:16px">
+        <button class="pill active" onclick="filterRole('',this)">All</button>
+        <button class="pill" onclick="filterRole('student',this)">Students</button>
+        <button class="pill" onclick="filterRole('vendor',this)">Vendors</button>
+        <button class="pill" onclick="filterRole('admin',this)">Admins</button>
+      </div>
+
+      <div class="card">
+        <table class="data-table" style="width:100%">
+          <thead><tr><th>User</th><th>Role</th><th>Phone</th><th>Joined</th><th>Status</th></tr></thead>
+          <tbody id="usersTable">
+            <tr><td colspan="5"><div class="spinner-wrap"><div class="spinner"></div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="js/main.js"></script>
+<script>
+  let allUsers = []
+  let roleFilter = ''
+
+  function renderUsers() {
+    const q = document.getElementById('userSearch').value.toLowerCase()
+    const tbody = document.getElementById('usersTable')
+    let rows = allUsers
+    if (roleFilter) rows = rows.filter(u => u.role === roleFilter)
+    if (q) rows = rows.filter(u => (u.full_name||'').toLowerCase().includes(q) || (u.username||'').toLowerCase().includes(q) || (u.email||'').toLowerCase().includes(q))
+
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="5">No users found.</td></tr>`; return }
+
+    tbody.innerHTML = rows.map(u => {
+      const initials = (u.full_name||u.email||'U').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)
+      return `<tr>
+        <td>
+          <div class="tbl-user">
+            <div class="avatar avatar-sm">${initials}</div>
+            <div><div class="tbl-uname">${u.full_name||'—'}</div><div class="tbl-usub">${u.email}</div></div>
+          </div>
+        </td>
+        <td><span class="badge badge-gray">${u.role}</span></td>
+        <td>${u.phone || '—'}</td>
+        <td>${fmtDate(u.created_at)}</td>
+        <td>${u.role === 'vendor' ? (u.verified ? '<span class="badge badge-green">Verified</span>' : '<span class="badge badge-yellow">Pending</span>') : '<span class="badge badge-gray">Active</span>'}</td>
+      </tr>`
+    }).join('')
+  }
+
+  function filterUsers() { renderUsers() }
+  function filterRole(role, el) {
+    roleFilter = role
+    document.querySelectorAll('#roleFilterPills .pill').forEach(p => p.classList.remove('active'))
+    el.classList.add('active')
+    renderUsers()
+  }
+
+  async function loadUsers() {
+    const { data, error } = await sb.from('users').select('*').order('created_at',{ascending:false})
+    if (error) { document.getElementById('usersTable').innerHTML = `<tr><td colspan="5"><div class="alert alert-error">Failed to load users.</div></td></tr>`; return }
+    allUsers = data || []
+    renderUsers()
+  }
+
+  requireRole('admin').then(async profile => {
+    if (!profile) return
+    await populateSidebar()
+    loadUsers()
+  })
+</script>
+</body>
+</html>

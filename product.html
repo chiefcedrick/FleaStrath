@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Product Details – Strathmore Marketplace</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">🏛 Strathmore Marketplace</div>
+  <div class="sidebar-user">
+    <div class="avatar" id="sidebarAvatar">U</div>
+    <div>
+      <div class="sidebar-uname" id="sidebarName">Loading…</div>
+      <div class="sidebar-urole" id="sidebarRole">Student</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
+  <div class="sidebar-foot" id="sidebarFoot">Student ID: —</div>
+</aside>
+
+<div class="app-layout">
+  <main class="app-main">
+
+    <div class="app-topbar">
+      <button class="icon-btn" onclick="toggleSidebar()">☰</button>
+      <button class="btn btn-outline btn-sm" onclick="goBack()">← Back</button>
+      <div style="flex:1"></div>
+    </div>
+
+    <div class="app-content">
+      <div id="productDetail">
+        <div class="spinner-wrap"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="js/main.js"></script>
+<script>
+  function goBack() {
+    if (document.referrer && document.referrer.includes(location.host)) history.back()
+    else location.href = 'marketplace.html'
+  }
+
+  async function loadProduct() {
+    const el = document.getElementById('productDetail')
+    const id = new URLSearchParams(location.search).get('id')
+    if (!id) { showError(el, 'No product specified.'); return }
+
+    const { data: p, error } = await sb.from('products')
+      .select('*, users(full_name, shop_name, email, verified)')
+      .eq('id', id).single()
+
+    if (error || !p) { showEmpty(el, 'This listing could not be found. It may have been removed by the seller.'); return }
+
+    const seller = p.users || {}
+    const imageBlock = p.image_url
+      ? `<img src="${p.image_url}" alt="${p.title}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius)">`
+      : `<div style="font-size:5rem;display:flex;align-items:center;justify-content:center;height:100%">${catEmoji(p.category)}</div>`
+
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:26px" class="product-detail-grid">
+        <div style="background:var(--gray-bg);border-radius:var(--radius);aspect-ratio:1/1;overflow:hidden">
+          ${imageBlock}
+        </div>
+        <div>
+          <div class="product-card-cat" style="margin-bottom:6px">${p.category || 'General'}</div>
+          <h1 style="margin-bottom:10px">${p.title}</h1>
+          <div style="font-size:1.6rem;font-weight:800;color:var(--navy);margin-bottom:14px">
+            ${fmtPrice(p.price)} ${p.is_negotiable ? '<span class="badge badge-yellow" style="margin-left:8px">Negotiable</span>' : ''}
+          </div>
+          <div style="margin-bottom:16px">${statusBadge(p.status)}</div>
+          <p style="color:var(--text-2);line-height:1.6;margin-bottom:20px">${p.description || 'No description provided.'}</p>
+
+          <div class="card" style="padding:16px;margin-bottom:16px">
+            <div style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-3);margin-bottom:8px">Seller Information</div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+              <div class="avatar avatar-sm">${(seller.full_name || '?')[0]}</div>
+              <div>
+                <div style="font-weight:700">${seller.full_name || 'Unknown Seller'} ${seller.verified ? '<span class="badge badge-green">Verified</span>' : ''}</div>
+                <div style="font-size:0.8rem;color:var(--text-3)">${seller.shop_name || ''}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size:0.8rem;color:var(--text-3);margin-bottom:20px">Posted on ${fmtDate(p.created_at)}</div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            ${seller.email ? `<a href="mailto:${seller.email}?subject=${encodeURIComponent('Inquiry about: ' + p.title)}" class="btn btn-primary">✉️ Contact Vendor</a>` : ''}
+            <button class="btn btn-outline" onclick="goBack()">← Back</button>
+          </div>
+        </div>
+      </div>
+      <style>@media (max-width:768px){.product-detail-grid{grid-template-columns:1fr !important}}</style>
+    `
+  }
+
+  requireAuth().then(async session => {
+    if (!session) return
+    await populateSidebar()
+    loadProduct()
+  })
+</script>
+</body>
+</html>

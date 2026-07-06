@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vendor Dashboard – Strathmore Marketplace</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">🏛 Strathmore Marketplace</div>
+  <div class="sidebar-user">
+    <div class="avatar" id="sidebarAvatar">V</div>
+    <div>
+      <div class="sidebar-uname" id="sidebarName">Loading…</div>
+      <div class="sidebar-urole" id="sidebarRole">Verified Vendor</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
+  <div class="sidebar-foot" id="sidebarFoot">Shop: —</div>
+</aside>
+
+<div class="app-layout">
+  <main class="app-main">
+
+    <div class="app-topbar">
+      <button class="icon-btn" onclick="toggleSidebar()">☰</button>
+      <div style="flex:1"></div>
+      <a href="my-shop.html?action=add" class="btn btn-primary btn-sm">+ Add Product</a>
+    </div>
+
+    <div class="app-content">
+
+      <div class="page-head">
+        <div>
+          <h1 id="pageGreeting">Vendor Dashboard</h1>
+          <p class="page-sub">Manage your shop and track your listings at a glance.</p>
+        </div>
+      </div>
+
+      <!-- Dashboard statistics -->
+      <div class="stats-grid" id="dashStats" style="margin-bottom:26px">
+        <div class="spinner-wrap" style="grid-column:1/-1"><div class="spinner"></div></div>
+      </div>
+
+      <div class="two-col" style="display:grid;grid-template-columns:1.4fr 1fr;gap:18px">
+        <div class="card">
+          <div class="announce-head"><span>🏷️</span> Recent Listings</div>
+          <div id="recentListings">
+            <div class="spinner-wrap"><div class="spinner"></div></div>
+          </div>
+          <div class="announce-cta">
+            <a href="my-shop.html" style="font-size:0.82rem;font-weight:700;color:var(--navy)">Manage All Products →</a>
+          </div>
+        </div>
+
+        <div class="events-card">
+          <div class="events-head"><span>📅</span> Upcoming Market Events</div>
+          <div id="dashEvents">
+            <div class="spinner-wrap" style="padding:20px"><div class="spinner"></div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <footer style="border-top:1px solid var(--border);padding:16px 22px;display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;color:var(--text-3);flex-wrap:wrap;gap:8px;background:white">
+      <div>
+        <strong style="color:var(--text);display:block">Strathmore University Flea Market</strong>
+        © 2024 Strathmore Marketplace
+      </div>
+      <div style="display:flex;gap:18px">
+        <a href="legal.html#terms">Terms of Service</a>
+        <a href="legal.html#privacy">Privacy Policy</a>
+        <a href="legal.html#help">Help Center</a>
+      </div>
+    </footer>
+  </main>
+</div>
+
+<script src="js/main.js"></script>
+<script>
+  let currentUserId = null
+
+  async function loadDashStats() {
+    const el = document.getElementById('dashStats')
+    const [total, active, sold, events, announcements] = await Promise.all([
+      sb.from('products').select('*', { count:'exact', head:true }).eq('seller_id', currentUserId),
+      sb.from('products').select('*', { count:'exact', head:true }).eq('seller_id', currentUserId).eq('status','active'),
+      sb.from('products').select('*', { count:'exact', head:true }).eq('seller_id', currentUserId).eq('status','sold'),
+      sb.from('events').select('*', { count:'exact', head:true }).in('status',['upcoming','available']),
+      sb.from('announcements').select('*', { count:'exact', head:true }),
+    ])
+    el.innerHTML = `
+      <div class="stat-card"><div class="stat-label">Total Products</div><div class="stat-val">${total.count || 0}</div></div>
+      <div class="stat-card"><div class="stat-label">Available Products</div><div class="stat-val">${active.count || 0}</div></div>
+      <div class="stat-card"><div class="stat-label">Sold Products</div><div class="stat-val">${sold.count || 0}</div></div>
+      <div class="stat-card"><div class="stat-label">Upcoming Events</div><div class="stat-val">${events.count || 0}</div></div>
+      <div class="stat-card"><div class="stat-label">Announcements</div><div class="stat-val">${announcements.count || 0}</div></div>`
+  }
+
+  async function loadRecentListings() {
+    const el = document.getElementById('recentListings')
+    const { data, error } = await sb.from('products').select('*').eq('seller_id', currentUserId).order('created_at',{ascending:false}).limit(5)
+    if (error || !data?.length) { showEmpty(el, "You haven't listed anything yet. Click + Add Product to get started."); return }
+    el.innerHTML = `<table class="data-table" style="width:100%"><tbody>` + data.map(p => `
+      <tr>
+        <td>${catEmoji(p.category)} ${p.title}</td>
+        <td>${p.category || 'General'}</td>
+        <td>${fmtPrice(p.price)}</td>
+        <td>${statusBadge(p.status)}</td>
+      </tr>`).join('') + `</tbody></table>`
+  }
+
+  async function loadDashEvents() {
+    const el = document.getElementById('dashEvents')
+    const { data } = await sb.from('events').select('*').in('status',['upcoming','available']).order('event_date',{ascending:true}).limit(3)
+    if (!data?.length) { el.innerHTML = '<div class="campus-ev-item"><p class="text-sm text-gray">No upcoming events.</p></div>'; return }
+    el.innerHTML = data.map(eventListItem).join('')
+  }
+
+  requireRole('vendor').then(async profile => {
+    if (!profile) return
+    currentUserId = profile.id
+    document.getElementById('pageGreeting').textContent = (profile.shop_name || 'Vendor Dashboard')
+    await populateSidebar()
+    loadDashStats()
+    loadRecentListings()
+    loadDashEvents()
+  })
+</script>
+</body>
+</html>

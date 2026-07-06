@@ -20,14 +20,7 @@
       <div class="sidebar-urole" id="sidebarRole">Verified Vendor</div>
     </div>
   </div>
-  <nav class="sidebar-nav">
-    <a class="nav-item" href="marketplace.html"><span class="nav-icon">🏪</span>Marketplace</a>
-    <a class="nav-item active" href="my-shop.html"><span class="nav-icon">🏷️</span>My Shop</a>
-    <a class="nav-item" href="admin.html"><span class="nav-icon">📊</span>Analytics</a>
-    <a class="nav-item" href="orders.html"><span class="nav-icon">📦</span>Orders</a>
-    <a class="nav-item" href="settings.html"><span class="nav-icon">⚙️</span>Settings</a>
-    <a class="nav-item" href="#" onclick="logout();return false" style="margin-top:auto;color:var(--red)"><span class="nav-icon">🚪</span>Sign Out</a>
-  </nav>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
   <div class="sidebar-foot" id="sidebarFoot">Student ID: —</div>
 </aside>
 
@@ -95,10 +88,10 @@
         © 2024 Strathmore University Flea Market
       </div>
       <div style="display:flex;gap:16px">
-        <a href="#">Terms of Service</a>
-        <a href="#">Privacy Policy</a>
-        <a href="#">Help Center</a>
-        <a href="#">Contact Admin</a>
+        <a href="legal.html#terms">Terms of Service</a>
+        <a href="legal.html#privacy">Privacy Policy</a>
+        <a href="legal.html#help">Help Center</a>
+        <a href="mailto:admin-support@strathmore.edu">Contact Admin</a>
       </div>
     </footer>
   </main>
@@ -121,14 +114,7 @@
       </div>
       <div class="form-group">
         <label class="form-label">Category</label>
-        <select class="form-input" id="pCategory">
-          <option value="textbooks">Textbooks</option>
-          <option value="electronics">Electronics</option>
-          <option value="furniture">Furniture</option>
-          <option value="accessories">Accessories</option>
-          <option value="clothing">Clothing</option>
-          <option value="lab-gear">Lab Gear</option>
-        </select>
+        <select class="form-input" id="pCategory"></select>
       </div>
       <div class="form-group">
         <label class="form-label">Price (KES)</label>
@@ -139,10 +125,18 @@
         <textarea class="form-input" id="pDesc" rows="3" placeholder="Describe the condition, edition, accessories included…" style="resize:vertical"></textarea>
       </div>
       <div class="form-group">
+        <label class="form-label">Product Image</label>
+        <input class="form-input" id="pImage" type="file" accept="image/png,image/jpeg,image/webp">
+        <div id="pImagePreviewWrap" style="display:none;margin-top:8px">
+          <img id="pImagePreview" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">
+        </div>
+      </div>
+      <div class="form-group">
         <label class="form-label">Status</label>
         <select class="form-input" id="pStatus">
           <option value="active">Active</option>
           <option value="pending">Pending</option>
+          <option value="sold">Sold</option>
           <option value="inactive">Inactive</option>
         </select>
       </div>
@@ -205,7 +199,7 @@
           ${rows.map(p=>`<tr>
             <td>
               <div style="display:flex;align-items:center;gap:10px">
-                <div style="width:34px;height:34px;background:var(--gray-bg);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">${catEmoji(p.category)}</div>
+                <div style="width:34px;height:34px;background:var(--gray-bg);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;overflow:hidden">${p.image_url ? `<img src="${p.image_url}" style="width:100%;height:100%;object-fit:cover">` : catEmoji(p.category)}</div>
                 <span style="font-weight:600;font-size:0.875rem">${p.title}</span>
               </div>
             </td>
@@ -247,6 +241,12 @@
       </div>`).join('')
   }
 
+  async function loadCategoryOptions() {
+    const cats = await getCategories()
+    document.getElementById('pCategory').innerHTML =
+      cats.map(c => `<option value="${c.slug}">${c.name}</option>`).join('')
+  }
+
   /* ── Modal ── */
   function openProductModal(product = null) {
     document.getElementById('modalTitle').textContent  = product ? 'Edit Product' : 'Add New Product'
@@ -257,6 +257,11 @@
     document.getElementById('pDesc').value             = product?.description || ''
     document.getElementById('pStatus').value           = product?.status || 'active'
     document.getElementById('pNegotiable').checked     = product?.is_negotiable || false
+    document.getElementById('pImage').value            = ''
+    const preview = document.getElementById('pImagePreview')
+    const previewWrap = document.getElementById('pImagePreviewWrap')
+    if (product?.image_url) { preview.src = product.image_url; previewWrap.style.display = 'block' }
+    else { previewWrap.style.display = 'none' }
     document.getElementById('modalAlert').innerHTML    = ''
     document.getElementById('productModal').style.display = 'flex'
   }
@@ -272,19 +277,47 @@
     const alertEl = document.getElementById('modalAlert')
     const title   = document.getElementById('pTitle').value.trim()
     const price   = parseFloat(document.getElementById('pPrice').value)
+    const desc    = document.getElementById('pDesc').value.trim()
+    const category = document.getElementById('pCategory').value
     if (!title || !price) {
       alertEl.innerHTML = '<div class="alert alert-error">Title and price are required.</div>'
+      return
+    }
+    if (price < 0) {
+      alertEl.innerHTML = '<div class="alert alert-error">Price cannot be negative.</div>'
+      return
+    }
+    if (!desc) {
+      alertEl.innerHTML = '<div class="alert alert-error">Description is required.</div>'
+      return
+    }
+    if (!category) {
+      alertEl.innerHTML = '<div class="alert alert-error">Please choose a category.</div>'
       return
     }
 
     const payload = {
       seller_id:     currentUserId,
       title,
-      category:      document.getElementById('pCategory').value,
+      category,
       price,
-      description:   document.getElementById('pDesc').value.trim(),
+      description:   desc,
       status:        document.getElementById('pStatus').value,
       is_negotiable: document.getElementById('pNegotiable').checked,
+    }
+
+    // Image upload (optional) — happens before the insert/update so
+    // image_url can ride along in the same payload.
+    const file = document.getElementById('pImage').files[0]
+    if (file) {
+      const path = `${currentUserId}/${Date.now()}-${file.name}`
+      const { error: uploadError } = await sb.storage.from('product-images').upload(path, file, { upsert: true })
+      if (uploadError) {
+        alertEl.innerHTML = `<div class="alert alert-error">Image upload failed: ${uploadError.message}</div>`
+        return
+      }
+      const { data: pub } = sb.storage.from('product-images').getPublicUrl(path)
+      payload.image_url = pub.publicUrl
     }
 
     const editId = document.getElementById('editProductId').value
@@ -310,12 +343,14 @@
     loadShopProducts()
   }
 
-  requireAuth().then(async session => {
-    if (!session) return
-    currentUserId = session.user.id
+  requireVendor().then(async profile => {
+    if (!profile) return
+    currentUserId = profile.id
     await populateSidebar()
+    await loadCategoryOptions()
     loadShopProducts()
     loadSchedule()
+    if (new URLSearchParams(location.search).get('action') === 'add') openProductModal()
   })
 </script>
 </body>

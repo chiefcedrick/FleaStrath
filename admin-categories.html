@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Categories – Strathmore Admin</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">🏛 Strathmore Marketplace</div>
+  <div class="sidebar-user">
+    <div class="avatar" id="sidebarAvatar">A</div>
+    <div>
+      <div class="sidebar-uname" id="sidebarName">Loading…</div>
+      <div class="sidebar-urole" id="sidebarRole">Administrator</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
+  <div class="sidebar-foot">© 2024 Marketplace Admin</div>
+</aside>
+
+<div class="app-layout">
+  <main class="app-main">
+
+    <div class="app-topbar">
+      <button class="icon-btn" onclick="toggleSidebar()">☰</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-primary btn-sm" onclick="openCatModal()">+ Add Category</button>
+    </div>
+
+    <div class="app-content">
+      <div class="page-head">
+        <div>
+          <h1>Manage Categories</h1>
+          <p class="page-sub">Categories power the filter pills and listing form across the whole marketplace.</p>
+        </div>
+      </div>
+
+      <div id="catAlert"></div>
+
+      <div class="card">
+        <table class="data-table" style="width:100%">
+          <thead><tr><th>Icon</th><th>Name</th><th>Slug</th><th>Products Using It</th><th></th></tr></thead>
+          <tbody id="catTable">
+            <tr><td colspan="5"><div class="spinner-wrap"><div class="spinner"></div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Add/Edit Category Modal -->
+<div class="modal-overlay" id="catModal" style="display:none">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="catModalTitle">Add Category</h3>
+      <button class="modal-close" onclick="closeCatModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="catModalAlert"></div>
+      <input type="hidden" id="catId">
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input class="form-input" id="catName" placeholder="e.g. Sports Gear" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Icon (emoji)</label>
+        <input class="form-input" id="catIcon" placeholder="🏷️" maxlength="4">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-outline" onclick="closeCatModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCategory()">Save Category</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/main.js"></script>
+<script>
+  let allCats = []
+
+  function slugify(name) {
+    return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+  }
+
+  async function loadCategories() {
+    const tbody = document.getElementById('catTable')
+    const { data: cats, error } = await sb.from('categories').select('*').order('name')
+    if (error) { tbody.innerHTML = `<tr><td colspan="5"><div class="alert alert-error">Failed to load categories.</div></td></tr>`; return }
+    allCats = cats || []
+
+    const { data: products } = await sb.from('products').select('category')
+    const usageCount = {}
+    ;(products || []).forEach(p => { usageCount[p.category] = (usageCount[p.category] || 0) + 1 })
+
+    if (!allCats.length) { tbody.innerHTML = `<tr><td colspan="5">No categories yet.</td></tr>`; return }
+
+    tbody.innerHTML = allCats.map(c => `
+      <tr>
+        <td style="font-size:1.2rem">${c.icon}</td>
+        <td>${c.name}</td>
+        <td><code>${c.slug}</code></td>
+        <td>${usageCount[c.slug] || 0}</td>
+        <td>
+          <button class="action-icon-btn" onclick='openCatModal(${JSON.stringify(c)})'>✏️</button>
+          <button class="action-icon-btn del" onclick="deleteCategory('${c.id}','${c.slug}',${usageCount[c.slug] || 0})">🗑️</button>
+        </td>
+      </tr>`).join('')
+  }
+
+  function openCatModal(cat = null) {
+    document.getElementById('catModalTitle').textContent = cat ? 'Edit Category' : 'Add Category'
+    document.getElementById('catId').value = cat?.id || ''
+    document.getElementById('catName').value = cat?.name || ''
+    document.getElementById('catIcon').value = cat?.icon || '🏷️'
+    document.getElementById('catModalAlert').innerHTML = ''
+    document.getElementById('catModal').style.display = 'flex'
+  }
+  function closeCatModal() { document.getElementById('catModal').style.display = 'none' }
+
+  async function saveCategory() {
+    const alertEl = document.getElementById('catModalAlert')
+    const id   = document.getElementById('catId').value
+    const name = document.getElementById('catName').value.trim()
+    const icon = document.getElementById('catIcon').value.trim() || '🏷️'
+    if (!name) { alertEl.innerHTML = '<div class="alert alert-error">Category name is required.</div>'; return }
+
+    const payload = { name, icon, slug: slugify(name) }
+    const { error } = id
+      ? await sb.from('categories').update(payload).eq('id', id)
+      : await sb.from('categories').insert(payload)
+
+    if (error) { alertEl.innerHTML = `<div class="alert alert-error">${error.message}</div>`; return }
+    closeCatModal()
+    showToast('✅ Category saved.')
+    _categoriesCache = null // invalidate the shared cache used across the site
+    loadCategories()
+  }
+
+  async function deleteCategory(id, slug, usageCount) {
+    const warn = usageCount > 0
+      ? `${usageCount} existing product(s) currently use "${slug}". Deleting the category will NOT delete or change those products (no foreign key links them) — it only removes "${slug}" from future add/edit dropdowns. Continue?`
+      : `Delete this category?`
+    if (!confirm(warn)) return
+    const { error } = await sb.from('categories').delete().eq('id', id)
+    if (error) { showToast('Error deleting category.'); return }
+    showToast('🗑️ Category deleted.')
+    _categoriesCache = null
+    loadCategories()
+  }
+
+  requireRole('admin').then(async profile => {
+    if (!profile) return
+    await populateSidebar()
+    loadCategories()
+  })
+</script>
+</body>
+</html>

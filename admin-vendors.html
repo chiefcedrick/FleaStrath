@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Vendors – Strathmore Admin</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">🏛 Strathmore Marketplace</div>
+  <div class="sidebar-user">
+    <div class="avatar" id="sidebarAvatar">A</div>
+    <div>
+      <div class="sidebar-uname" id="sidebarName">Loading…</div>
+      <div class="sidebar-urole" id="sidebarRole">Administrator</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
+  <div class="sidebar-foot">© 2024 Marketplace Admin</div>
+</aside>
+
+<div class="app-layout">
+  <main class="app-main">
+
+    <div class="app-topbar">
+      <button class="icon-btn" onclick="toggleSidebar()">☰</button>
+      <div style="flex:1"></div>
+    </div>
+
+    <div class="app-content">
+      <div class="page-head"><div><h1>Manage Vendors</h1><p class="page-sub">Approve, reject, or revoke vendor verification.</p></div></div>
+
+      <div class="pill-row" id="vendorFilterPills" style="margin-bottom:16px">
+        <button class="pill active" onclick="filterVendors('all',this)">All</button>
+        <button class="pill" onclick="filterVendors('pending',this)">Pending Verification</button>
+        <button class="pill" onclick="filterVendors('verified',this)">Verified</button>
+      </div>
+
+      <div class="card">
+        <table class="data-table" style="width:100%">
+          <thead><tr><th>Vendor</th><th>Shop Name</th><th>Joined</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="vendorsTable">
+            <tr><td colspan="5"><div class="spinner-wrap"><div class="spinner"></div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="js/main.js"></script>
+<script>
+  let allVendors = []
+  let vendorFilter = 'all'
+
+  function renderVendors() {
+    const tbody = document.getElementById('vendorsTable')
+    let rows = allVendors
+    if (vendorFilter === 'pending') rows = rows.filter(v => !v.verified)
+    if (vendorFilter === 'verified') rows = rows.filter(v => v.verified)
+
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="5">No vendors found.</td></tr>`; return }
+
+    tbody.innerHTML = rows.map(u => {
+      const initials = (u.full_name||u.email||'U').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)
+      return `<tr>
+        <td>
+          <div class="tbl-user">
+            <div class="avatar avatar-sm">${initials}</div>
+            <div><div class="tbl-uname">${u.full_name||'—'}</div><div class="tbl-usub">${u.email}</div></div>
+          </div>
+        </td>
+        <td>${u.shop_name || '—'}</td>
+        <td>${fmtDate(u.created_at)}</td>
+        <td>${u.verified ? '<span class="badge badge-green">Verified</span>' : '<span class="badge badge-yellow">Pending</span>'}</td>
+        <td>
+          <div class="tbl-actions">
+            ${!u.verified ? `<button class="action-icon-btn" onclick="approveVendor('${u.id}')" title="Approve">✅</button>` : ''}
+            <button class="action-icon-btn del" onclick="rejectVendor('${u.id}')" title="Reject / Revoke">✕</button>
+          </div>
+        </td>
+      </tr>`
+    }).join('')
+  }
+
+  function filterVendors(f, el) {
+    vendorFilter = f
+    document.querySelectorAll('#vendorFilterPills .pill').forEach(p => p.classList.remove('active'))
+    el.classList.add('active')
+    renderVendors()
+  }
+
+  async function loadVendors() {
+    const { data, error } = await sb.from('users').select('*').eq('role','vendor').order('created_at',{ascending:false})
+    if (error) { document.getElementById('vendorsTable').innerHTML = `<tr><td colspan="5"><div class="alert alert-error">Failed to load vendors.</div></td></tr>`; return }
+    allVendors = data || []
+    renderVendors()
+  }
+
+  async function approveVendor(id) {
+    await sb.from('users').update({ verified: true }).eq('id', id)
+    showToast('✅ Vendor approved!')
+    loadVendors()
+  }
+
+  async function rejectVendor(id) {
+    if (!confirm('Reject/revoke this vendor? They will be demoted to a Student account.')) return
+    await sb.from('users').update({ role: 'student', verified: false }).eq('id', id)
+    showToast('Vendor rejected.')
+    loadVendors()
+  }
+
+  requireRole('admin').then(async profile => {
+    if (!profile) return
+    await populateSidebar()
+    loadVendors()
+  })
+</script>
+</body>
+</html>

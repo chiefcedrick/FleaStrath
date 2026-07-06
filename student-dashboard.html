@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Dashboard – Strathmore Marketplace</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">🏛 Strathmore Marketplace</div>
+  <div class="sidebar-user">
+    <div class="avatar" id="sidebarAvatar">S</div>
+    <div>
+      <div class="sidebar-uname" id="sidebarName">Loading…</div>
+      <div class="sidebar-urole" id="sidebarRole">Student</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
+  <div class="sidebar-foot" id="sidebarFoot">Student ID: —</div>
+</aside>
+
+<div class="app-layout">
+  <main class="app-main">
+
+    <div class="app-topbar">
+      <button class="icon-btn" onclick="toggleSidebar()">☰</button>
+      <div class="topbar-search">
+        <span class="topbar-search-icon">🔍</span>
+        <input type="text" id="heroSearch" placeholder="Search for textbooks, electronics, and more…">
+      </div>
+      <a href="marketplace.html" class="btn btn-primary btn-sm">Browse All →</a>
+    </div>
+
+    <div class="app-content">
+
+      <div class="page-head">
+        <div>
+          <h1 id="pageGreeting">Welcome back</h1>
+          <p class="page-sub">Here's what's happening in the marketplace today.</p>
+        </div>
+      </div>
+
+      <!-- Dashboard summary cards -->
+      <div class="stats-grid" id="dashStats" style="margin-bottom:22px">
+        <div class="spinner-wrap" style="grid-column:1/-1"><div class="spinner"></div></div>
+      </div>
+
+      <!-- Category quick-nav -->
+      <div class="pill-row" id="catPillsStudent" style="margin-bottom:20px">
+        <button class="pill active" onclick="filterStudentCat('',this)">All Items</button>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <h2 style="font-size:1.1rem">Newest Listings</h2>
+        <a href="marketplace.html" class="view-all">View All +</a>
+      </div>
+      <div class="product-grid" id="newestListings">
+        <div class="spinner-wrap" style="grid-column:1/-1"><div class="spinner"></div></div>
+      </div>
+
+      <div class="section-gap"></div>
+
+      <div class="two-col" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:22px">
+        <div class="announce-card">
+          <div class="announce-head"><span>📢</span> Announcements</div>
+          <div id="dashAnnouncements">
+            <div class="spinner-wrap" style="padding:20px"><div class="spinner"></div></div>
+          </div>
+          <div class="announce-cta">
+            <a href="news.html" style="font-size:0.82rem;font-weight:700;color:var(--navy)">View All Updates →</a>
+          </div>
+        </div>
+
+        <div class="events-card">
+          <div class="events-head"><span>📅</span> Upcoming Events</div>
+          <div id="dashEvents">
+            <div class="spinner-wrap" style="padding:20px"><div class="spinner"></div></div>
+          </div>
+          <div class="announce-cta">
+            <a href="events.html" style="font-size:0.82rem;font-weight:700;color:var(--navy)">View All Events →</a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <footer style="border-top:1px solid var(--border);padding:16px 22px;display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;color:var(--text-3);flex-wrap:wrap;gap:8px;background:white">
+      <div>
+        <strong style="color:var(--text);display:block">Strathmore University Flea Market</strong>
+        © 2024 Strathmore Marketplace
+      </div>
+      <div style="display:flex;gap:18px">
+        <a href="legal.html#terms">Terms of Service</a>
+        <a href="legal.html#privacy">Privacy Policy</a>
+        <a href="legal.html#help">Help Center</a>
+      </div>
+    </footer>
+  </main>
+</div>
+
+<script src="js/main.js"></script>
+<script>
+  let studentCat = ''
+
+  function doSearch() {
+    const q = document.getElementById('heroSearch').value.trim()
+    location.href = q ? `marketplace.html?q=${encodeURIComponent(q)}` : 'marketplace.html'
+  }
+  document.getElementById('heroSearch').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch() })
+
+  async function loadDashStats() {
+    const el = document.getElementById('dashStats')
+    const [products, events, announcements, newest] = await Promise.all([
+      sb.from('products').select('*', { count:'exact', head:true }).eq('status','active'),
+      sb.from('events').select('*', { count:'exact', head:true }).in('status',['upcoming','available']),
+      sb.from('announcements').select('*', { count:'exact', head:true }),
+      sb.from('products').select('*', { count:'exact', head:true }).eq('status','active').gte('created_at', new Date(Date.now() - 7*86400*1000).toISOString()),
+    ])
+    el.innerHTML = `
+      <div class="stat-card"><div class="stat-label">Available Products</div><div class="stat-val">${products.count || 0}</div></div>
+      <div class="stat-card"><div class="stat-label">Upcoming Events</div><div class="stat-val">${events.count || 0}</div></div>
+      <div class="stat-card"><div class="stat-label">Announcements</div><div class="stat-val">${announcements.count || 0}</div></div>
+      <div class="stat-card"><div class="stat-label">Newest Listings</div><div class="stat-val">${newest.count || 0}</div></div>`
+  }
+
+  function filterStudentCat(cat, el) {
+    studentCat = cat
+    document.querySelectorAll('#catPillsStudent .pill').forEach(p => p.classList.remove('active'))
+    if (el) el.classList.add('active')
+    loadNewestListings()
+  }
+
+  async function loadCategoryPills() {
+    const cats = await getCategories()
+    const el = document.getElementById('catPillsStudent')
+    el.innerHTML = '<button class="pill active" onclick="filterStudentCat(\'\',this)">All Items</button>' +
+      cats.map(c => `<button class="pill" onclick="filterStudentCat('${c.slug}',this)">${c.name}</button>`).join('')
+  }
+
+  async function loadNewestListings() {
+    const el = document.getElementById('newestListings')
+    let query = sb.from('products').select('*').eq('status','active').order('created_at',{ascending:false}).limit(8)
+    if (studentCat) query = query.eq('category', studentCat)
+    const { data, error } = await query
+    if (error || !data?.length) { showEmpty(el, 'No listings found.'); return }
+    el.innerHTML = data.map(productGridCard).join('')
+  }
+
+  async function loadDashAnnouncements() {
+    const el = document.getElementById('dashAnnouncements')
+    const { data } = await sb.from('announcements').select('*').order('created_at',{ascending:false}).limit(3)
+    if (!data?.length) { el.innerHTML = '<div class="announce-item"><p class="text-sm text-gray">No announcements yet.</p></div>'; return }
+    el.innerHTML = data.map(a => `
+      <div class="announce-item">
+        <div class="ann-tag-row">
+          <span class="ann-tag ${a.tag==='policy'||a.tag==='alert'?'admin':'market'}">${(a.tag||'update').toUpperCase()}</span>
+          <span class="ann-time">${timeAgo(a.created_at)}</span>
+        </div>
+        <div class="ann-title">${a.title}</div>
+        <div class="ann-desc">${(a.body||'').slice(0,90)}${a.body&&a.body.length>90?'…':''}</div>
+      </div>`).join('')
+  }
+
+  async function loadDashEvents() {
+    const el = document.getElementById('dashEvents')
+    const { data } = await sb.from('events').select('*').in('status',['upcoming','available','ongoing']).order('event_date',{ascending:true}).limit(3)
+    if (!data?.length) { el.innerHTML = '<div class="campus-ev-item"><p class="text-sm text-gray">No upcoming events.</p></div>'; return }
+    el.innerHTML = data.map(e => {
+      const d  = e.event_date ? new Date(e.event_date) : null
+      const mo = d ? d.toLocaleString('en-KE',{month:'short'}).toUpperCase() : ''
+      const dy = d ? d.getDate() : ''
+      return `
+      <div class="campus-ev-item">
+        <div class="ev-date-badge"><div class="mo">${mo}</div><div class="dy">${dy}</div></div>
+        <div>
+          <div class="ev-name">${e.name}</div>
+          <div class="ev-place">${[e.location, e.start_time].filter(Boolean).join(' · ')}</div>
+        </div>
+      </div>`
+    }).join('')
+  }
+
+  requireRole('student').then(async profile => {
+    if (!profile) return
+    document.getElementById('pageGreeting').textContent = 'Welcome back, ' + (profile.full_name?.split(' ')[0] || 'Student')
+    await populateSidebar()
+    loadDashStats()
+    loadCategoryPills()
+    loadNewestListings()
+    loadDashAnnouncements()
+    loadDashEvents()
+  })
+</script>
+</body>
+</html>

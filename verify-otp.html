@@ -110,7 +110,7 @@
       // The account is now Active. Use the brief authenticated session to write the
       // full profile (queued as user_metadata at registration) into public.users.
       const meta = data.user.user_metadata || {}
-      await sb.from('users').upsert({
+      const { error: profileError } = await sb.from('users').upsert({
         id:        data.user.id,
         email:     pendingEmail,
         full_name: meta.full_name || '',
@@ -119,6 +119,13 @@
         role:      meta.role || 'student',
         shop_name: meta.role === 'vendor' ? (meta.shop_name || null) : null,
       })
+
+      if (profileError) {
+        alertEl.innerHTML = `<div class="alert alert-error">Your email was verified, but saving your profile failed: ${profileError.message}. Please contact support — your account may need manual setup.</div>`
+        btn.disabled    = false
+        btn.textContent = 'Verify Code'
+        return
+      }
 
       await sb.auth.signOut()
       sessionStorage.removeItem('pendingVerifyEmail')

@@ -2,6 +2,8 @@
 
 This document explains **what actually happens behind the scenes** (in the database/backend) each time a user interacts with the FleaStrath website. It is written to be used alongside the project report and during the viva/demonstration.
 
+**2026-07-06 note:** this document was substantially rewritten after a full role-separation overhaul. Previously, Student and Vendor accounts shared one identical dashboard/sidebar with no real access restriction — that has been replaced with genuinely distinct dashboards, navigation, and database-level (RLS) role enforcement per role. See §4, §5, and §7 for what changed.
+
 ---
 
 ## 1. Architecture Overview
@@ -14,24 +16,25 @@ Browser (HTML/CSS/JS pages)
         │  supabase-js client library (loaded from CDN)
         ▼
 Supabase Project
-   ├── Auth          → handles signup/login/sessions/password reset
-   ├── Postgres DB   → users, products, events, announcements, orders tables
-   └── Row Level Security (RLS) → database-level permission rules
+   ├── Auth          → handles signup/login/sessions/password reset/OTP
+   ├── Storage        → hosts uploaded product images
+   ├── Postgres DB   → users, products, events, announcements, orders, categories tables
+   └── Row Level Security (RLS) → database-level permission rules, incl. role checks
 ```
 
 Every page includes two scripts:
 1. `@supabase/supabase-js` (CDN) — the client library.
-2. `js/supabase.js` — creates the single shared client (`sb`) and defines helper functions reused across pages (`getSession()`, `getProfile()`, `requireAuth()`, `requireAdmin()`, `logout()`, `populateSidebar()`, plus card/formatting templates).
+2. `js/supabase.js` — creates the single shared client (`sb`) and defines helper functions reused across pages: `getSession()`, `getProfile()`, `requireAuth()`, `requireRole()`/`requireAdmin()`/`requireVendor()`/`requireStudent()`, `dashboardFor()`, `logout()`, `populateSidebar()`/`renderSidebar()`, `getCategories()`, plus card/formatting templates.
 
-There is no separate "API" you call — each page's inline `<script>` block talks **directly** to the Supabase database using the client library, and Supabase itself enforces who is allowed to read/write which rows via RLS policies (defined in `setup.sql`). This is the modern equivalent of "the backend" for this project: **Postgres + Auth + RLS = the backend logic**, even though there's no traditional server-side code you wrote by hand.
+There is no separate "API" you call — each page's inline `<script>` block talks **directly** to the Supabase database using the client library, and Supabase itself enforces who is allowed to read/write which rows via RLS policies (defined across `setup.sql`, `schema-rls-hardening.sql`, `schema-categories.sql`, and `schema-storage.sql`). This is the modern equivalent of "the backend" for this project: **Postgres + Auth + Storage + RLS = the backend logic**, even though there's no traditional server-side code you wrote by hand.
 
-`js/main.js` is purely cosmetic (sidebar toggle, toasts, tab/pill switching) and never touches the database.
+`js/main.js` handles generic UI behavior (mobile hamburger drawer, toasts, tab/pill switching for the public top-navbar pages) and never touches the database. Sidebar rendering/highlighting moved into `js/supabase.js` (see §4) since it depends on the logged-in user's role.
 
 ---
 
 ## 2. Database Schema
 
-Defined in `setup.sql`. Five tables:
+Defined across four SQL files, all meant to be run once each in the Supabase SQL Editor, in this order: `setup.sql` → `schema-rls-hardening.sql` → `schema-categories.sql` → `schema-storage.sql` → `seed-demo-data.sql`.
 
 | Table | Purpose | Key columns |
 |---|---|---|
@@ -40,8 +43,11 @@ Defined in `setup.sql`. Five tables:
 | `events` | Flea market events | `id`, `name`, `location`, `event_date`, `start_time`, `end_time`, `description`, `status`, `is_featured` |
 | `announcements` | Admin news/notices | `id`, `title`, `body`, `tag` (`policy`/`event`/`alert`/`tips`/`success`), `author_id` (FK→users) |
 | `orders` | Buyer transactions | `id`, `buyer_id` (FK→users), `product_id` (FK→products), `status` (`pending`/`completed`/`cancelled`) |
+| `categories` | Canonical list of product categories (added in `schema-categories.sql`) | `id`, `name`, `slug` (unique), `icon` |
 
-**Referential integrity:** `products.seller_id` and `orders.buyer_id`/`product_id` are foreign keys with `on delete cascade` / `on delete set null` respectively — so deleting a user cascades to their products, and deleting a product just nulls out the reference on any historical order rather than breaking it.
+**Referential integrity:** `products.seller_id` and `orders.buyer_id`/`product_id` are foreign keys with `on delete cascade` / `on delete set null` respectively — so deleting a user cascades to their products, and deleting a product just nulls out the reference on any historical order rather than breaking it. `products.category` is deliberately **plain text, not a foreign key** to `categories` — this means deleting a category can never orphan or corrupt an existing product row (directly satisfies "deleting a category should be handled carefully"); it only removes that name from future add/edit dropdowns.
+
+Supabase **Storage** (`schema-storage.sql`) adds one bucket, `product-images` (public read, 5MB limit, png/jpeg/webp only), with upload/update/delete restricted to each vendor's own folder (`product-images/<their-uid>/...`).
 
 ### Auto-provisioning on signup
 A Postgres trigger, `handle_new_user()`, fires automatically whenever a new row is inserted into Supabase's internal `auth.users` table (i.e. the moment someone signs up). It inserts a matching row into `public.users` with just `id` and `email` filled in. This guarantees every authenticated account has a profile row **even before** the registration form's own insert runs.
@@ -52,179 +58,174 @@ A Postgres trigger, `handle_new_user()`, fires automatically whenever a new row 
 
 ### Registration + Email OTP Verification (`register.html` → `verify-otp.html`)
 Registration no longer logs the user in immediately — it requires email verification first:
-1. **Client-side validation** runs first: passwords must match, all required fields must be filled, password must be ≥8 characters, terms checkbox must be checked.
+1. **Client-side validation** runs first: passwords must match, all required fields must be filled, password must be ≥8 characters, terms checkbox must be checked, and a best-effort **duplicate-username check** (`sb.from('users').select('id').eq('username', username).maybeSingle()`) runs before signup is attempted, giving a friendly message instead of a raw Postgres unique-constraint error.
 2. `sb.auth.signUp({ email, password, options: { data: {...profile fields} } })` — Supabase Auth creates the (unconfirmed) account. The profile fields (`full_name`, `username`, `phone`, `role`, `shop_name`) ride along as `user_metadata` on the auth user rather than being written to `public.users` yet, because no session exists at this point to satisfy the `users` table's RLS insert policy.
 3. Supabase's mailer sends the account's institutional email a **6-digit numeric OTP** (this is Supabase's native "Confirm signup" email, configured to embed `{{ .Token }}` — see the setup checklist below). Supabase stores the code and its expiry server-side; FleaStrath never persists it in its own database.
-4. The browser stores the pending email in `sessionStorage` and redirects to `verify-otp.html`.
+4. The browser stores the pending email in `sessionStorage` and redirects to `verify-otp.html`. An optional `?type=vendor` or `?type=student` query param (used by the homepage's two CTA buttons — see §5) pre-selects the correct registration tab.
 5. On `verify-otp.html`, submitting the 6-digit code calls `sb.auth.verifyOtp({ email, token, type: 'signup' })`. Supabase checks the code and expiry itself:
-   - **Match + not expired:** returns a short-lived session for the now-confirmed user. That session is used once to `sb.from('users').upsert({...})` — writing the full profile (pulled back out of `user_metadata`) into `public.users` — then immediately `sb.auth.signOut()`, and the user is redirected to `login.html`.
+   - **Match + not expired:** returns a short-lived session for the now-confirmed user. That session is used once to `sb.from('users').upsert({...})` — writing the full profile (pulled back out of `user_metadata`) into `public.users`. If that write itself fails, the error is now **surfaced to the user** ("Your email was verified, but saving your profile failed...") rather than silently proceeding — otherwise `sb.auth.signOut()` runs and the user is redirected to `login.html`.
    - **Wrong code or expired:** `error` is returned; the page shows "Invalid or expired code. Please try again or resend." A "Resend Code" link calls `sb.auth.resend({ type: 'signup', email })`.
 6. On signUp failure (e.g., duplicate email — rejected at the `auth.users` level): the error message is shown inline on `register.html`, no OTP is sent.
 
 **Required one-time Supabase Dashboard configuration** (cannot be done from this codebase — it's project-level Auth config):
 - Authentication → Providers → Email → enable **"Confirm email"**.
-- Authentication → Email Templates → **Confirm signup** → edit the template body to include `{{ .Token }}` (Supabase's default template links to a URL instead of showing a code; swapping in the token turns it into the 6-digit OTP flow this app expects).
-- Authentication → Settings → set the **OTP expiry** to `300` seconds (5 minutes) — this is what actually enforces the 5-minute expiry; the frontend has no control over it.
-
-**Note on validation gaps:** duplicate **username** is not explicitly checked client-side, though the `users.username` column has a `unique` database constraint, so a duplicate username will still fail — just via a raw Postgres error message rather than a friendly one.
+- Authentication → Email Templates → **Confirm signup** → edit the template body to include `{{ .Token }}`.
+- Authentication → Settings → set the **OTP expiry** to `300` seconds (5 minutes).
 
 ### Login (`login.html`)
-1. `sb.auth.signInWithPassword({ email, password })` authenticates against Supabase Auth. If "Confirm email" is enabled (per above) and the account hasn't completed OTP verification yet, Supabase itself rejects the login attempt with an "Email not confirmed" error — the app doesn't need to check this separately.
+1. `sb.auth.signInWithPassword({ email, password })` authenticates against Supabase Auth.
 2. On success, the app queries `sb.from('users').select('role').eq('id', user.id).single()` to find out the account's role.
-3. **Redirect by role:** `role === 'admin'` → `admin.html`; everyone else (`student`/`vendor`) → `marketplace.html`.
-4. On failure: "Incorrect email or password" style message shown in the alert box; the login button re-enables.
+3. **Redirect by role**, via the shared `dashboardFor(role)` helper: `admin` → `admin.html`; `vendor` → `vendor-dashboard.html`; `student` (or anything else) → `student-dashboard.html`. Previously vendor and student both landed on the same `marketplace.html` — this was the root cause of "every role has the same access," now fixed.
+4. On failure: Supabase's own error message is shown (e.g. "Invalid login credentials" if the account doesn't exist or the password is wrong, "Email not confirmed" if OTP verification wasn't completed).
 5. **Forgot Password:** `sb.auth.resetPasswordForEmail(email, {...})` sends a password-reset email via Supabase Auth.
-6. The Student/Vendor/Admin **role dropdown** on the login page is **cosmetic only** — it doesn't change which credentials are checked. The actual role is always determined from the database after authentication, not from the dropdown selection. Selecting "Admin / Support" additionally reveals a demo-credentials hint box at the bottom of the card (see §8, Known Limitations, for why this is a placeholder rather than a real credential).
+6. The Student/Vendor/Admin **role dropdown** is cosmetic only — the actual role is always determined from the database after authentication. Selecting "Admin / Support" reveals a demo-credentials hint box (a deliberate fake placeholder — see §7).
+7. If already logged in and `login.html`/`register.html` is revisited, the redirect also goes through `dashboardFor(role)` rather than a fixed page.
 
 ### Logout
-`logout()` (shared helper) calls `sb.auth.signOut()`, which invalidates the session/token, then redirects to `login.html`. Because the session token is gone, any page that calls `requireAuth()` on load will immediately bounce back to the login page if the browser Back button is used afterward — satisfying the "prevent Back button from reopening dashboard" requirement.
+`logout()` (shared helper) calls `sb.auth.signOut()`, then redirects to `login.html`. Any page that calls `requireAuth()`/`requireRole()` on load will immediately bounce back to the login page if the browser Back button is used afterward.
 
 ---
 
-## 4. Role-Based Access Control (How Roles Are Enforced)
+## 4. Role-Based Access Control (How Roles Are Now Enforced)
 
-There are two layers where "who can do what" is enforced:
+This is the section that changed most. There are two layers, and **both** now check the actual role, not just "is logged in":
 
-1. **Client-side gates** (in the JS on each page):
-   - `requireAuth()` — redirects to `login.html` if there's no active session. Used on every logged-in page (`marketplace.html`, `my-shop.html`, `orders.html`, `settings.html`, `admin.html`).
-   - `requireAdmin()` — additionally checks `profile.role === 'admin'` and redirects to `marketplace.html` if not. **This check exists only on `admin.html`.**
+### Client-side gates (`js/supabase.js`)
+- `requireAuth()` — session-only check, used by pages any authenticated role may view: `marketplace.html`, `orders.html`, `settings.html`, `product.html`.
+- `requireRole(expectedRole)` — the new generic gate. Fetches the profile; if there's no session, redirects to `login.html`; if the role doesn't match, redirects to **the caller's own correct dashboard** via `dashboardFor(profile.role)` — never a one-size-fits-all fallback. `requireAdmin()`, `requireVendor()`, `requireStudent()` are thin wrappers around it.
+- Role-exclusive pages and their gate: `student-dashboard.html` → `requireRole('student')`; `vendor-dashboard.html` and `my-shop.html` → `requireRole('vendor')`; `admin.html` and every `admin-*.html` page → `requireRole('admin')` (via `requireAdmin()`).
 
-2. **Database-side rules (Row Level Security)** in `setup.sql`, which Postgres enforces no matter what the frontend does:
-   - `users`: anyone can read all profiles; a user can only insert/update **their own** row.
-   - `products`: anyone can read `active` listings, or their own listings regardless of status; only the seller (`auth.uid() = seller_id`) can insert/update/delete their own products.
-   - `events` / `announcements`: readable by anyone; writable by **any authenticated user** (`auth.role() = 'authenticated'`), not specifically admins.
-   - `orders`: a user can only see orders where they are the buyer or the seller of the referenced product; only the buyer can create an order for themselves.
+### Dynamic, role-aware sidebar
+Every sidebar page now renders an **empty** `<nav id="sidebarNav">` instead of a hardcoded list of links. `renderSidebar(profile)` (called from inside `populateSidebar()`, which every page already awaits) fills it in from one shared per-role array:
 
-**Important gap to know for the viva:** because the RLS policy for `events`/`announcements` only checks "is this user logged in," the *admin-only* restriction on creating events/announcements is currently enforced only by `requireAdmin()` in `admin.html`'s JavaScript — not by the database. A logged-in student could in theory call the same Supabase insert directly from the browser console and it would succeed. Similarly, any authenticated user (not just verified vendors) can insert into `products` from `my-shop.html`, since RLS only checks that `seller_id` matches the logged-in user, not their `role` or `verified` flag. If your report claims strict role separation is enforced at every layer, this is the one place implementation and documentation could be seen as inconsistent — worth mentioning as a "future work" item if asked.
+- **Student:** Dashboard, Products, Categories, Events, Announcements, Profile, Logout.
+- **Vendor:** Dashboard, My Products, Add Product, Edit Product, Profile, Logout. ("Add Product" deep-links to `my-shop.html?action=add`, which auto-opens the Add modal on load; "Edit Product" and "My Products" both point at the same page since editing requires picking a specific item from the table first — there's no meaningful standalone "edit" page without that selection step.)
+- **Admin:** Dashboard, Users, Vendors, Products, Categories, Events, Announcements, Reports, Settings, Logout.
+
+This single shared definition is why `marketplace.html`, `orders.html`, and `settings.html` (reachable by any role) now correctly show a *different* sidebar depending on who's actually logged in, and why there's no more risk of one page's nav silently going stale (which is exactly how `marketplace.html` previously ended up with dead `href="#"` links for Analytics/Orders/Settings that were never updated when those pages were added).
+
+### Database-side rules (Row Level Security)
+`schema-rls-hardening.sql` tightens the original, more permissive policies:
+- `events` / `announcements`: write access now requires `role = 'admin'` (checked via a join against `public.users`), not merely `auth.role() = 'authenticated'` as before.
+- `products`: insert now requires `role in ('vendor', 'admin')`, not just "any logged-in user."
+- `products`: a new admin-override delete policy lets admins remove/moderate **any** listing, in addition to the existing "sellers can delete their own" policy.
+
+This closes what the previous version of this document called "the #1 known limitation (CWE-284, improper access control)" — role restrictions are no longer enforced only in JavaScript. If a student bypassed the UI and called the Supabase REST API directly with a valid session token, the database itself would now reject an attempt to insert a product or create an announcement.
 
 ---
 
 ## 5. Page-by-Page Backend Behaviour
 
 ### `index.html` — Public Landing Page
-No login required. On page load, three independent queries run in parallel:
-- Featured products: latest 4 rows from `products` where `status = 'active'`.
-- Upcoming events: rows from `events` where `status` is `upcoming` or `ongoing`, soonest first, limited to 3.
-- Campus news: latest 3 rows from `announcements`.
+No login required. Loads featured products, upcoming events, and campus news in parallel (unchanged). The hero now has a prominent **Sign In / Create Free Account** button pair (or, if already logged in, a "Go to My Dashboard" button routed through `dashboardFor()`), addressing the earlier issue where the only account-related call-to-action was "Become a Vendor," implying vendor was the only role. The bottom CTA section was renamed "Ready to Get Started?" with two equal buttons — "Shop as a Student" and "Sell as a Vendor" — both linking to `register.html` with a `?type=` param that pre-selects the matching tab.
 
-The hero search bar does not query the database itself — it just redirects to `marketplace.html?q=<term>`, where the real search happens. The 🛒 "add to cart" icon only shows a toast notification; it does not write anything to the database (see §7).
+### `login.html` / `register.html` / `verify-otp.html`
+Covered in §3. Both `login.html` and `register.html` now render with **no top navigation bar** at all (removed at request) — just the centered auth card.
 
-### `login.html` / `register.html`
-Covered in §3.
+### `student-dashboard.html` (new)
+Gated `requireRole('student')`. The real Student Dashboard: four summary cards (Available Products, Upcoming Events, Announcements, Newest Listings — all live counts), a category quick-nav (from `getCategories()`), a Newest Listings grid, and Announcements/Events preview panels. Replaces the previous `home-student.html`, which was an orphaned, unlinked, mobile-only page reachable by anyone with no auth guard at all.
+
+### `vendor-dashboard.html` (new)
+Gated `requireRole('vendor')`. Stats: Total Products, Available (Active) Products, Sold Products, Upcoming Events, Announcements — all scoped to the logged-in vendor's own listings where relevant. A Recent Listings table and an Upcoming Market Events panel.
 
 ### `marketplace.html` — Product Browsing, Search, Filtering
-Gated by `requireAuth()`. On load, and every time the user types in the search box (debounced 400ms), clicks a category pill, or changes page:
-- Query: `products` where `status = 'active'`, optionally `.eq('category', selected)` and/or `.ilike('title', '%searchTerm%')`, ordered newest-first, paginated with `.range()`.
-- Total count is fetched alongside results (`count: 'exact'`) to drive the pagination controls.
-- Empty results show "No listings found."; a database error shows "Failed to load products."
+Gated by `requireAuth()` (any role). Category pills now load from `getCategories()` instead of a hardcoded list. The "+ List an Item" button in the topbar is now **conditionally shown only to vendors** (previously visible to every role, misleadingly implying anyone could list an item). Search/filter/pagination logic is unchanged: `.eq('category', selected)`, `.ilike('title', '%searchTerm%')`, `.range()` for pagination.
+
+### `product.html` — Product Details (new)
+The single biggest functional gap this overhaul fixed: previously, clicking a product anywhere in the app only fired a decorative toast — there was **no way to actually view a product's full details**, breaking the mandated demo-flow step "View Product." Gated `requireAuth()` (any role can view). Takes `?id=`, joins the product with its seller (`full_name`, `shop_name`, `email`, `verified`), and shows: a large image (real `image_url` if the vendor uploaded one, else a category-emoji placeholder), description, price, category, availability badge, a Seller Information card, the formatted posting date, a **Contact Vendor** button (a `mailto:` link — the deliberate, documented substitute for a full in-app messaging/checkout system, which remains out of scope), and a Back button. Every product card across the site (`productGridCard`, `productStackCard`) now links here via a real "View Details" button.
 
 ### `my-shop.html` — Vendor Product Management
-Gated by `requireAuth()`. This is where CRUD on `products` happens:
-- **List:** fetches only the logged-in user's own products (`.eq('seller_id', currentUserId)`), paginated.
-- **Add:** validates `title` and `price` are present client-side, then `INSERT` into `products` with `seller_id` set to the current user, `status` defaulting to `active`.
-- **Edit:** same form, but runs `UPDATE ... WHERE id = editId` instead of insert.
-- **Delete:** asks for confirmation (`confirm()` dialog), then `DELETE FROM products WHERE id = id`.
-- **Mark as Sold:** handled via the same update path by setting `status = 'sold'`.
-- Because RLS restricts updates/deletes to `auth.uid() = seller_id`, a vendor physically **cannot** modify or delete another vendor's row — even if they tampered with the request, Postgres would reject it.
-- A local search box on this page filters the already-loaded product list in-browser — it does not re-query the database.
+Gate upgraded from `requireAuth()` to `requireRole('vendor')` — previously any logged-in student could reach this page and its Add/Edit Product form. Category select now loads from `getCategories()`. Add/edit validation was expanded to match the full requirement set: **missing name, negative price, empty description, and no category are all now rejected** (previously only title/price were checked). A **"Sold"** status option was added to the dropdown (previously the only way to reach `sold` status was directly in the database — there was no UI path to "Mark as Sold" at all). A file input now supports real image upload: selecting a file uploads to `product-images/<vendor-uid>/<filename>` in Supabase Storage, then the returned public URL is saved as the product's `image_url`. Visiting `my-shop.html?action=add` auto-opens the Add modal (used by the "Add Product" sidebar link and the vendor dashboard's quick-add button).
 
-### `orders.html` / `settings.html` (transactions tab)
-Gated by `requireAuth()`. Shows the logged-in user's own orders (`.eq('buyer_id', currentUserId)`), joined with product info. Cancelling a pending order runs `UPDATE orders SET status = 'cancelled' WHERE id = ...`, only available for orders currently in `pending` status.
-
-> **Known gap:** no page in the current build actually **creates** an order (there is no "Buy Now"/checkout button wired to an insert). The `orders` table, its RLS insert policy, and this history page all exist and work, but nothing currently populates the table during normal use — rows would need to be added directly in Supabase for this page to show data. If your report describes a purchase flow, flag this as a partially-implemented feature.
-
-### `settings.html` — Profile Management
-Gated by `requireAuth()`. Loads the current profile via the shared `getProfile()` helper. "Save Changes" validates that `full_name` isn't empty, then `UPDATE users SET full_name, username, phone WHERE id = currentUserId`. Email and role fields are shown but disabled — a user cannot change their own email or self-promote to admin/vendor from this screen. Dark mode toggle is purely a `localStorage` preference and never touches the database.
+### `orders.html` / `settings.html`
+Gated by `requireAuth()` (any role — a vendor or admin can also be a buyer). Unchanged functionally from the previous version: `orders.html` shows the logged-in user's own purchase history; `settings.html` handles profile editing and (for students/vendors) completed-transaction history. Both now render the correct role-specific sidebar automatically.
 
 ### `admin.html` — Admin Dashboard
-The only page gated by `requireAdmin()`. On load, four count queries run in parallel to populate the stat cards: total users, total vendors (`role = 'vendor'`), total active products, total upcoming/available events. Below that:
-- **Pending vendor verifications:** rows from `users` where `role = 'vendor' AND verified = false`.
-- **Approve:** `UPDATE users SET verified = true WHERE id = ...`.
-- **Reject:** confirms, then `UPDATE users SET role = 'student', verified = false WHERE id = ...` (demotes the applicant back to student).
-- **Recent activity feed:** tries to show recent `orders`; if there are none yet (see the orders gap above), it falls back to showing recent `announcements` instead.
-- **Broadcast/Announcement creation:** validates title and body are filled, then `INSERT INTO announcements (title, body, tag, author_id)`.
+Gated `requireRole('admin')` (via `requireAdmin()`). Stat cards expanded from 4 to the full spec set: Total Users, Total Vendors, Total Products, Total Categories, Total Events, Announcements. The old "Pending Verifications" management table and "Recent Activity" feed were replaced with **Recent Registrations** (newest signups, any role) and **Recent Listings** (newest products, any seller) — genuine overview widgets, with the actual vendor-approval workflow moved to its own dedicated page (see below), matching how a real admin dashboard separates "at-a-glance" from "manage." The Broadcast modal (quick announcement creation) remains as a fast-path shortcut alongside the full `admin-announcements.html` CRUD page.
 
-### `events.html` — Flea Market Events (public)
-No login required. Loads all rows from `events`, sorted by date. Calendar-day clicks and category-style filtering happen entirely client-side against the already-fetched list — no extra queries fire. "Add to Calendar"/"View Details" buttons are currently decorative (no handler wired).
+### `admin-users.html` (new)
+All registered users, any role, in a searchable/filterable table.
 
-### `news.html` — Announcements (public)
-No login required. Loads `announcements` (joined with the author's name), paginated, with an optional tag filter (`policy`/`event`/`alert`/`tips`/`success`) applied as a `.eq('tag', ...)` filter re-query.
+### `admin-vendors.html` (new)
+All vendor accounts (verified and pending), with **Approve**/**Reject** actions — this is where the vendor-verification workflow formerly on `admin.html` now lives permanently.
 
-### `home-student.html`
-An alternate student-facing landing view. Loads featured products, announcements, and events similarly to `index.html`, and additionally fetches the logged-in user's first name (if a session exists) to personalize the greeting — but it has **no auth guard**, so it's reachable and fully functional for anonymous visitors too.
+### `admin-products.html` (new)
+Every product listing across every seller, with status filtering and an **admin force-delete** action (backed by the new admin-override RLS delete policy from §4) — this is the actual moderation tool the requirements describe ("Admin should manage: Products").
+
+### `admin-categories.html` (new)
+CRUD on the `categories` table. Deleting a category shows a warning with the current usage count (how many products reference that slug) but — because `products.category` is plain text with no foreign key — deleting it can never corrupt or orphan those existing product rows.
+
+### `admin-events.html` (new)
+Full CRUD (create/edit/delete) on `events` — name, location, date, start/end time, description, status, featured flag. Previously there was **no admin-facing way to create or edit an event at all**; `events.html` was read-only and public.
+
+### `admin-announcements.html` (new)
+List + create/edit/delete on `announcements`, absorbing and extending the previous create-only Broadcast modal.
+
+### `admin-reports.html` (new)
+The five reports the requirements call for: **Products by Category** (client-side grouped count + a simple CSS bar chart — no external chart library, consistent with the project's no-build-tool approach), **Registered Vendors** (table), **Active Listings** (count), **Upcoming Events** (table), **System Statistics** (the same counts as the dashboard, in a summary table).
+
+### `events.html` / `news.html` (public)
+Unchanged functionally — still public, top-navbar pages (no sidebar), read-only for everyone. A logged-in student clicking "Events" or "Announcements" from their dashboard sidebar deliberately lands on these existing public pages rather than a sidebar-wrapped duplicate — a scope-containment decision, not an oversight.
+
+### `legal.html` (new)
+A single page with Terms of Service / Privacy Policy / Help Center tabs, replacing roughly 30 dead `href="#"` footer links across the entire site. "Contact Admin"/"Contact IT Support" links now point to a real `mailto:` address.
 
 ---
 
 ## 6. Error Handling Patterns
 
-Every data-loading function follows the same three-state pattern:
+Every data-loading function follows the same three-state pattern (unchanged, and now applied consistently to every new admin page too):
 1. **Loading:** a spinner + "Loading…" message is shown while the query is in flight.
-2. **Empty:** if the query succeeds but returns zero rows, a friendly message is shown ("No products found.", "No upcoming events.", etc.) instead of a blank page.
-3. **Error:** if the query itself fails (network issue, RLS rejection, etc.), a red alert box shows a friendly message rather than a raw stack trace or console error.
-
-Form submissions (login, register, add/edit product, broadcast, cancel order, profile update) all disable their submit button and show inline alert text on failure, so the user is never left wondering whether their click registered.
+2. **Empty:** if the query succeeds but returns zero rows, a friendly message is shown instead of a blank page.
+3. **Error:** if the query itself fails, a red alert box shows a friendly message rather than a raw stack trace or console error.
 
 ---
 
 ## 7. Known Limitations (read before your viva)
 
-These are gaps between what the schema/UI *suggests* and what is *fully wired up*. Worth knowing so your report and live demo stay consistent, or so you can quickly patch them before presenting:
+Most of the limitations previously listed here have now been **fixed** by this overhaul — they're kept below, marked, so your report can accurately describe what changed and why, rather than silently deleting the history:
 
-1. **No image upload.** The `products.image_url` column exists but no page has a file input or calls Supabase Storage. Product cards display a category emoji instead of a photo.
-2. **No checkout/"Buy" flow.** `orders.html` and the admin activity feed both read from `orders`, but no button anywhere inserts a row into it. The "add to cart" 🛒 icons on product cards only show a toast — they don't add to a real cart or create an order.
-3. **Role gating is client-side only** for admin-only writes (events/announcements) and vendor-only writes (products) — the database's RLS policies are more permissive than the UI implies (see §4). This is fine for a student project but worth a one-line caveat in your report ("access control is enforced at the application layer for these actions") rather than claiming full database-level role separation everywhere.
-4. **Vendor verification is cosmetic for listing purposes** — an unverified/student account can still list a product via `my-shop.html`; `verified` currently only gates the "Verified" badge shown to buyers, not the ability to sell.
-5. **`verify-otp.html` doesn't surface upsert errors** — if the post-verification profile write silently fails, the user still sees "Email verified!" and is redirected to login. Low risk in practice (the DB trigger already guarantees a baseline `id`+`email` row), but worth knowing.
-6. **The admin-role login hint box is intentionally a placeholder, not a real credential.** `login.html`'s dropdown reveals `admin-flea@market.com` / `DemoPass123` when "Admin / Support" is selected — **no such account exists in Supabase by default**; this text is display-only and isn't wired to bypass authentication. If you try to log in with it as-is you'll get "Invalid login credentials" because Supabase has no matching row in `auth.users`. To make it (and the rest of your demo accounts) real and working, see `seed-demo-data.sql` — create each account via Dashboard → Authentication → Users → "Add user" with **Auto Confirm User** ticked (this sidesteps needing a real inbox for the OTP step entirely), then run that script to set roles/shop names and seed sample products. There is no self-serve "become admin" path by design — role changes are meant to be deliberate, mirroring how `admin.html` promotes vendors. Do not swap in real production admin credentials here — showing genuine credentials in plaintext to any anonymous visitor is a hardcoded-credential vulnerability (CWE-798).
-7. **Navbar redesign scope:** the new top navbar (logo top-left, links top-right, hamburger→drawer on mobile) is applied to `index.html`, `events.html`, `news.html`, and the new `verify-otp.html`. It was deliberately **removed from `login.html` and `register.html`** at the user's request, so those two auth screens now render with no top navigation bar at all — just the centered auth card. The logged-in dashboard pages (`marketplace.html`, `my-shop.html`, `admin.html`, `orders.html`, `settings.html`) kept their existing left-sidebar + topbar layout, and `home-student.html` (a deliberately mobile-only, unlinked view) was left untouched.
+1. ~~No image upload~~ — **Fixed.** Real upload via Supabase Storage (§2, §5 `my-shop.html`).
+2. **No checkout/"Buy" flow — still out of scope, by design.** `orders.html` and `settings.html`'s transaction history both read from `orders`, but nothing inserts a row into it during normal use; the 🛒 "add to cart" icons remain decorative toasts. `product.html`'s "Contact Vendor" `mailto:` link is the deliberate substitute — a real purchase/payment flow was never part of the demo-flow requirement and would be genuinely out of scope for this project's timeline.
+3. ~~Role gating is client-side only~~ — **Fixed.** `schema-rls-hardening.sql` now enforces role at the database layer for products/events/announcements (§4).
+4. ~~Vendor verification is cosmetic for listing purposes~~ — **Partially addressed.** RLS now requires `role in ('vendor','admin')` to insert a product, so a student can no longer list an item at all (previously any authenticated user could). Being *unverified* (pending admin approval) still doesn't block a vendor from listing — `verified` still only gates the "Verified" badge shown to buyers on `product.html`. Whether unverified vendors should be blocked from selling entirely is a product decision, not a bug; worth one sentence in your report either way.
+5. **`verify-otp.html` no longer silently swallows the post-verification profile-upsert error** — now surfaced to the user with a support-contact message.
+6. **The admin-role login hint box is intentionally a placeholder, not a real credential.** See `seed-demo-data.sql` for how to make it (and the rest of your demo accounts) real, via Dashboard → Authentication → Users → "Add user" with **Auto Confirm User** ticked. Do not swap in real production admin credentials here — that would be a hardcoded-credential vulnerability (CWE-798).
+7. **Navbar scope:** the top navbar (logo left, links right, hamburger→drawer on mobile) applies to `index.html`, `events.html`, `news.html`, `verify-otp.html`. `login.html`/`register.html` intentionally have no top nav. The sidebar-based dashboard pages keep their existing left-sidebar layout (now dynamically role-aware, per §4).
+8. **Categories are a real table now, but `products.category` itself has no foreign key to it** — a deliberate choice (§2, §5 `admin-categories.html`) so category deletion can never corrupt existing products, at the cost of not having strict referential integrity on that one column.
 
-None of these block the core end-to-end demo described in your rubric (register → verify email → login → add product → browse/search/filter → view details → announcements → events → admin approve/broadcast → logout) — that full path is implemented and functional. They matter mainly for making sure your written report doesn't claim more than the app currently does (e.g., don't describe a "shopping cart and checkout system" unless you add one).
+None of these remaining items block the mandatory demo flow (register → verify email → login by role, landing on the correct dashboard → vendor adds a product with an image → edits it → logs out → student browses/searches/filters → views full product details and vendor info → views announcements/events → logs out → admin sees the new vendor/product → creates an announcement → creates/updates an event → views reports → logs out) — that full path is now implemented end-to-end and role-separated.
 
 ---
 
 ## 8. Database Normalization
 
-Your supervisor will likely ask "is your schema normalized?" — here's the honest answer with the reasoning, table by table.
+**1NF (atomic values, no repeating groups):** every column in every table — including the new `categories` table — holds a single indivisible value. ✅ Satisfied throughout.
 
-**1NF (atomic values, no repeating groups):** every column in every table (`users`, `products`, `events`, `announcements`, `orders`) holds a single indivisible value — no comma-separated lists, no arrays-as-strings, no "category1,category2" columns. ✅ Satisfied throughout.
+**2NF:** every table uses a single-column surrogate key (`id uuid`), so there's no composite key to partially depend on — satisfied automatically. ✅
 
-**2NF (no partial dependency on part of the key):** 2NF only becomes a concern with *composite* primary keys, where a non-key column might depend on just part of the key. Every table here uses a single-column surrogate key (`id uuid`), so there's no composite key to partially depend on — 2NF is satisfied automatically. ✅
+**3NF:** mostly satisfied, with one deliberate, already-documented exception: `users` combines student/vendor/admin into one table via **single-table inheritance** (a `role` discriminator column plus nullable role-specific columns like `shop_name`/`student_id`), rather than the textbook-correct table-per-subtype design. This is a deliberate simplicity trade-off, not an oversight — say so directly if asked. The new `categories` table is fully normalized on its own (id, name, slug, icon — no transitive dependencies).
 
-**3NF (no transitive dependency — non-key columns shouldn't depend on other non-key columns):** mostly satisfied, with one deliberate exception worth naming in your report rather than hiding:
-- `products`, `events`, `announcements`, `orders` are clean — every column describes that entity directly and only that entity.
-- `users` mixes three roles (student/vendor/admin) into one table, so `shop_name` (only meaningful for vendors) and `student_id` (only meaningful for students) sit on every row regardless of role, left `null` when not applicable. Strictly, `shop_name` depends on `role = 'vendor'` being true — a non-key column's relevance depending on another non-key column — which is a mild 3NF compromise. The stricter alternative would be **table-per-subtype** (a `vendors` table with `shop_name` FK'd to `users.id`, a separate `students` table with `student_id`), which is the textbook-correct normalized design. This project uses **single-table inheritance** instead (one `users` table, a `role` discriminator column, nullable role-specific columns) — a common, deliberate trade-off in small applications because it avoids extra joins on every query that just needs "who is this user," at the cost of a few always-nullable columns. **If asked**, say this directly: "we chose single-table inheritance over subtype tables for simplicity; the trade-off is a few nullable columns rather than an extra join," rather than claiming strict 3NF everywhere.
+**Referential integrity:** unchanged from before, plus the new admin-override delete policy on `products` (§4) and the deliberate *lack* of a foreign key from `products.category` to `categories.slug` (§2) — a considered normalization trade-off in the opposite direction: strict referential integrity was sacrificed specifically to prevent category deletion from ever cascading into product data loss.
 
-**Referential integrity (beyond normal forms, but related):** every relationship is enforced with a real foreign key, not just "an id column that happens to match":
-- `products.seller_id → users.id`, `on delete cascade` (delete a user, their listings go with them — no orphaned products pointing at a nonexistent seller).
-- `orders.buyer_id → users.id` and `orders.product_id → products.id`, the latter `on delete set null` (delete a product, past order history is preserved but the link is nulled rather than the whole order row being destroyed — you keep the transaction record).
-- `announcements.author_id → users.id`.
-
-**No redundant/duplicated data:** a product doesn't store the seller's name or shop name inline (that would be denormalization) — it stores only `seller_id`, and every page that needs the seller's name does a join (e.g. `sb.from('products').select('*, users(full_name)')`). This is why, for example, `verticalCard()` in `js/supabase.js` reads `p.users?.full_name` rather than a `p.seller_name` column that would go stale if the seller renamed their account.
+**No redundant/duplicated data:** unchanged — products still only store `seller_id` and join for seller details; categories are now also referenced by slug rather than duplicated as free-standing strings across 8+ files.
 
 ---
 
 ## 9. Security Summary
 
-What's actually implemented, in your supervisor's language:
-
-1. **Password hashing:** handled entirely by Supabase Auth (GoTrue), not by this codebase. Passwords are never stored or transmitted in plain text by our code — `sb.auth.signUp()`/`signInWithPassword()` send the password over HTTPS directly to Supabase's auth service, which hashes it (bcrypt) before storage. The app never sees or logs a raw password after submission.
-2. **SQL injection protection:** we never hand-build SQL strings. Every database call goes through the `supabase-js` query builder (`sb.from('table').select()/insert()/update()/delete()`), which compiles to parameterized PostgREST requests — user input is always sent as a value, never concatenated into a query string, so classic SQL injection isn't possible through this client.
-3. **Row Level Security (RLS):** every table has RLS enabled (`setup.sql`), meaning Postgres itself — not just the frontend — refuses to return or modify rows a request isn't entitled to. Even if someone bypassed the UI and called the REST API directly with a stolen anon key, they could still only ever touch rows the policies allow (e.g. a seller can `update`/`delete` only rows where `seller_id = auth.uid()`).
-4. **Session management:** Supabase issues a short-lived JWT access token + refresh token on login, stored client-side, sent as a `Bearer` header on every request; `sb.auth.signOut()` invalidates it. `requireAuth()`/`requireAdmin()` (in `js/supabase.js`) gate page access by checking for a valid session before rendering protected pages.
-5. **Input validation:** two layers — client-side (`required`, `minlength`, `type="email"`, custom JS checks like password-match) for immediate user feedback, and database-side constraints (`not null`, `unique` on `email`/`username`, foreign keys) as the actual enforced backstop, since client-side checks can always be bypassed.
-6. **Known gap, stated plainly (see §7 point 3):** role-based restrictions on *which* authenticated user can do *what* (e.g. only admins should create announcements, only vendors should list products) are currently enforced in the JavaScript, not in RLS policies. This is a real, nameable limitation (CWE-284, improper access control) — worth one sentence in your report acknowledging it rather than claiming complete database-enforced role separation.
+1. **Password hashing:** handled entirely by Supabase Auth (GoTrue) — unchanged.
+2. **SQL injection protection:** the Supabase query builder — unchanged.
+3. **Row Level Security (RLS):** now meaningfully stronger than before. Every table has RLS enabled, and as of `schema-rls-hardening.sql`, **role itself** is checked at the database layer for the write operations that matter most (creating products, events, announcements), not just "is this request authenticated."
+4. **Session management:** unchanged — Supabase JWTs, `requireAuth()`/`requireRole()` gate page access.
+5. **Input validation:** now more complete on the two forms that matter most — `register.html` adds a duplicate-username pre-check, and `my-shop.html`'s Add/Edit Product form now validates all four cases the requirements call for (missing name, negative price, empty description, no category), not just title/price.
+6. **Storage security:** the new `product-images` bucket restricts uploads to each authenticated vendor's own folder (`(storage.foldername(name))[1] = auth.uid()::text`), enforced by `storage.objects` RLS policies, with a server-side 5MB file-size cap and an image-type allowlist (png/jpeg/webp) — not just a client-side `accept=` hint, which could otherwise be trivially bypassed.
+7. **Previously the #1 flagged gap, now closed:** role-based restrictions on *which* authenticated user can do *what* are enforced by RLS, not only in JavaScript (see §4). If your report previously included the caveat "access control is enforced at the application layer" — update it; that's no longer the full picture.
 
 ---
 
 ## 10. Framework, Database Connection & API — What We Actually Used
 
-This project has **no traditional backend framework** — no Express, Django, Laravel, or a server you deploy yourself. Instead:
+Unchanged from the previous version of this document — still no traditional backend framework. Supabase provides the hosted Postgres database, the auto-generated REST API (**PostgREST**), the authentication service (**GoTrue**), and now also **Storage** for uploaded images, all accessed from the browser through the official `supabase-js` client library. The only backend logic authored directly by this project lives inside Postgres as SQL: the RLS policies, the `handle_new_user()` trigger, and the category-seeding script.
 
-- **Database:** PostgreSQL, hosted and managed by **Supabase** (Supabase is a "Backend-as-a-Service" built on top of vanilla Postgres — the tables in `setup.sql` are plain SQL, nothing Supabase-proprietary about the schema itself).
-- **How the browser talks to the database — the actual API:** Supabase auto-generates a RESTful API directly from the Postgres schema using an open-source tool called **PostgREST**. The moment a table exists (e.g. `products`), PostgREST exposes `GET/POST/PATCH/DELETE https://<project>.supabase.co/rest/v1/products` automatically — we never wrote these endpoints by hand. Filtering, sorting, and pagination are done through query-string conventions (e.g. `?category=eq.electronics&order=created_at.desc`), which is what `.eq()`, `.order()`, `.range()` compile down to in the JS code.
-- **Authentication API:** a separate Supabase service called **GoTrue** (Supabase's fork/product name for its Auth API) handles `/auth/v1/signup`, `/auth/v1/token` (login), `/auth/v1/verify` (OTP), `/auth/v1/recover` (password reset), etc. This is what issues the JWTs that PostgREST then reads to enforce RLS.
-- **Client library ("the framework" in the traditional sense, from the frontend's point of view):** `@supabase/supabase-js` (loaded via CDN, `https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2`) — a JavaScript SDK that wraps both PostgREST and GoTrue behind one object (`sb = createClient(url, anonKey)`), so instead of writing raw `fetch()` calls, the code reads as chainable methods: `sb.from('products').select('*').eq('status','active')`, `sb.auth.signInWithPassword({...})`. Under the hood this is still just HTTPS requests with a Bearer token — the SDK is a convenience layer, not a different transport.
-- **No custom backend code we wrote ourselves:** every "API endpoint" this app calls is either PostgREST (auto-generated from the table schema + RLS policies) or GoTrue (Supabase's built-in auth service). The only backend logic we authored ourselves lives *inside Postgres* as SQL: the RLS policies and the `handle_new_user()` trigger function in `setup.sql`.
-- **The frontend itself:** plain HTML/CSS/vanilla JavaScript (no React/Vue/Angular, no build step, no bundler) — every page is a standalone `.html` file with an inline `<script>` block that calls the shared `sb` client from `js/supabase.js`.
-
-**One-sentence summary for your supervisor:** "We used Supabase as our backend — it gave us a hosted Postgres database, an auto-generated REST API (PostgREST) for all our CRUD operations, and a built-in authentication service (GoTrue) for signup/login/OTP, all accessed from the browser through the official `supabase-js` client library; we didn't write or host any backend server code ourselves."
+**One-sentence summary for your supervisor:** "We used Supabase as our backend — hosted Postgres, an auto-generated REST API (PostgREST) for all CRUD operations, a built-in authentication service (GoTrue) for signup/login/OTP, and Storage for product images, all accessed from the browser through the official `supabase-js` client library, with role-based access enforced at both the application layer and, since this overhaul, the database layer via Row Level Security; we didn't write or host any backend server code ourselves."

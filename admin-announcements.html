@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Announcements – Strathmore Admin</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+</head>
+<body>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">🏛 Strathmore Marketplace</div>
+  <div class="sidebar-user">
+    <div class="avatar" id="sidebarAvatar">A</div>
+    <div>
+      <div class="sidebar-uname" id="sidebarName">Loading…</div>
+      <div class="sidebar-urole" id="sidebarRole">Administrator</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
+  <div class="sidebar-foot">© 2024 Marketplace Admin</div>
+</aside>
+
+<div class="app-layout">
+  <main class="app-main">
+
+    <div class="app-topbar">
+      <button class="icon-btn" onclick="toggleSidebar()">☰</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-primary btn-sm" onclick="openAnnModal()">+ New Announcement</button>
+    </div>
+
+    <div class="app-content">
+      <div class="page-head"><div><h1>Manage Announcements</h1><p class="page-sub">Everything students see, chronologically, on the Announcements page.</p></div></div>
+
+      <div class="card">
+        <table class="data-table" style="width:100%">
+          <thead><tr><th>Title</th><th>Tag</th><th>Posted</th><th></th></tr></thead>
+          <tbody id="annTable">
+            <tr><td colspan="4"><div class="spinner-wrap"><div class="spinner"></div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Add/Edit Announcement Modal -->
+<div class="modal-overlay" id="annModal" style="display:none">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="annModalTitle">New Announcement</h3>
+      <button class="modal-close" onclick="closeAnnModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="annModalAlert"></div>
+      <input type="hidden" id="annId">
+      <div class="form-group">
+        <label class="form-label">Title</label>
+        <input class="form-input" id="annTitle" placeholder="Announcement title" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tag</label>
+        <select class="form-input" id="annTag">
+          <option value="event">Event</option>
+          <option value="policy">Policy Update</option>
+          <option value="alert">Alert</option>
+          <option value="tips">Tips</option>
+          <option value="success">Success</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Message</label>
+        <textarea class="form-input" id="annBody" rows="4" style="resize:vertical" required></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-outline btn-sm" onclick="closeAnnModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveAnnouncement()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/main.js"></script>
+<script>
+  let allAnns = []
+
+  async function loadAnnouncements() {
+    const tbody = document.getElementById('annTable')
+    const { data, error } = await sb.from('announcements').select('*').order('created_at',{ascending:false})
+    if (error) { tbody.innerHTML = `<tr><td colspan="4"><div class="alert alert-error">Failed to load announcements.</div></td></tr>`; return }
+    allAnns = data || []
+    if (!allAnns.length) { tbody.innerHTML = `<tr><td colspan="4">No announcements yet.</td></tr>`; return }
+
+    tbody.innerHTML = allAnns.map(a => `
+      <tr>
+        <td style="font-weight:600">${a.title}</td>
+        <td><span class="badge badge-gray">${(a.tag||'update').toUpperCase()}</span></td>
+        <td style="font-size:0.82rem;color:var(--text-3)">${timeAgo(a.created_at)}</td>
+        <td>
+          <div class="tbl-actions">
+            <button class="action-icon-btn" onclick="editAnnouncement('${a.id}')" title="Edit">✏️</button>
+            <button class="action-icon-btn del" onclick="deleteAnnouncement('${a.id}')" title="Delete">🗑️</button>
+          </div>
+        </td>
+      </tr>`).join('')
+  }
+
+  function openAnnModal(ann = null) {
+    document.getElementById('annModalTitle').textContent = ann ? 'Edit Announcement' : 'New Announcement'
+    document.getElementById('annId').value = ann?.id || ''
+    document.getElementById('annTitle').value = ann?.title || ''
+    document.getElementById('annTag').value = ann?.tag || 'event'
+    document.getElementById('annBody').value = ann?.body || ''
+    document.getElementById('annModalAlert').innerHTML = ''
+    document.getElementById('annModal').style.display = 'flex'
+  }
+  function closeAnnModal() { document.getElementById('annModal').style.display = 'none' }
+
+  function editAnnouncement(id) {
+    const a = allAnns.find(a => a.id === id)
+    if (a) openAnnModal(a)
+  }
+
+  async function saveAnnouncement() {
+    const alertEl = document.getElementById('annModalAlert')
+    const title = document.getElementById('annTitle').value.trim()
+    const body  = document.getElementById('annBody').value.trim()
+    if (!title || !body) { alertEl.innerHTML = '<div class="alert alert-error">Title and message are required.</div>'; return }
+
+    const payload = { title, body, tag: document.getElementById('annTag').value }
+    const id = document.getElementById('annId').value
+
+    let error
+    if (id) {
+      ;({ error } = await sb.from('announcements').update(payload).eq('id', id))
+    } else {
+      const session = await getSession()
+      ;({ error } = await sb.from('announcements').insert({ ...payload, author_id: session.user.id }))
+    }
+
+    if (error) { alertEl.innerHTML = `<div class="alert alert-error">${error.message}</div>`; return }
+    closeAnnModal()
+    showToast('✅ Announcement saved.')
+    loadAnnouncements()
+  }
+
+  async function deleteAnnouncement(id) {
+    if (!confirm('Delete this announcement?')) return
+    const { error } = await sb.from('announcements').delete().eq('id', id)
+    if (error) { showToast('Error deleting announcement.'); return }
+    showToast('🗑️ Announcement deleted.')
+    loadAnnouncements()
+  }
+
+  requireRole('admin').then(async profile => {
+    if (!profile) return
+    await populateSidebar()
+    loadAnnouncements()
+  })
+</script>
+</body>
+</html>

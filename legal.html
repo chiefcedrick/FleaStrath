@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms, Privacy &amp; Help – Strathmore Marketplace</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="auth-header">
+    <a href="index.html" class="auth-header-logo">
+      <span>🏛</span>
+      <span>Strathmore Marketplace</span>
+    </a>
+  </header>
+
+  <main style="max-width:760px;margin:0 auto;padding:32px 20px 60px">
+    <div class="role-tabs" id="legalTabs" style="margin-bottom:24px">
+      <button type="button" class="role-tab active" data-tab="terms" onclick="switchTab(this)">Terms of Service</button>
+      <button type="button" class="role-tab" data-tab="privacy" onclick="switchTab(this)">Privacy Policy</button>
+      <button type="button" class="role-tab" data-tab="help" onclick="switchTab(this)">Help Center</button>
+    </div>
+
+    <section id="tab-terms">
+      <h1 style="margin-bottom:14px">Terms of Service</h1>
+      <p style="color:var(--text-2);line-height:1.7;margin-bottom:14px">Strathmore Marketplace ("FleaStrath") is a peer-to-peer platform for Strathmore University students and staff to buy, sell, and exchange goods within the campus community. By creating an account you agree to:</p>
+      <ul style="color:var(--text-2);line-height:1.9;margin-left:20px;margin-bottom:14px">
+        <li>Provide accurate information during registration and keep your account details up to date.</li>
+        <li>Only list items you are legally entitled to sell, with an honest description of their condition.</li>
+        <li>Conduct all trades respectfully and in good faith with fellow students.</li>
+        <li>Follow any campus safety guidance when arranging to meet a buyer or seller in person.</li>
+      </ul>
+      <p style="color:var(--text-2);line-height:1.7">Strathmore Marketplace facilitates connections between buyers and sellers but is not a party to any transaction between users, and does not process payments on their behalf.</p>
+    </section>
+
+    <section id="tab-privacy" style="display:none">
+      <h1 style="margin-bottom:14px">Privacy Policy</h1>
+      <p style="color:var(--text-2);line-height:1.7;margin-bottom:14px">We collect only what's needed to run the marketplace: your full name, institutional email, phone number, and username at registration, plus whatever you choose to list for sale. Your password is never stored in plain text — it is hashed by our authentication provider.</p>
+      <ul style="color:var(--text-2);line-height:1.9;margin-left:20px;margin-bottom:14px">
+        <li>Your name and shop name (if you're a vendor) are visible to other logged-in users so they can identify who they're buying from.</li>
+        <li>Your email is only shared with a buyer if you list a product and they choose to contact you about it.</li>
+        <li>Administrators can view account and listing details to moderate the platform and verify vendor accounts.</li>
+      </ul>
+      <p style="color:var(--text-2);line-height:1.7">We do not sell or share your data with third parties outside of the university marketplace context.</p>
+    </section>
+
+    <section id="tab-help" style="display:none">
+      <h1 style="margin-bottom:14px">Help Center</h1>
+      <div style="margin-bottom:18px">
+        <h3 style="margin-bottom:6px">How do I become a verified vendor?</h3>
+        <p style="color:var(--text-2);line-height:1.7">Register with the Vendor option selected. An administrator reviews and approves new vendor accounts before your "Verified" badge appears.</p>
+      </div>
+      <div style="margin-bottom:18px">
+        <h3 style="margin-bottom:6px">I didn't receive my verification code.</h3>
+        <p style="color:var(--text-2);line-height:1.7">Check your spam folder first. If it still hasn't arrived after a few minutes, use the Resend Code link on the verification page.</p>
+      </div>
+      <div style="margin-bottom:18px">
+        <h3 style="margin-bottom:6px">How do I contact a seller?</h3>
+        <p style="color:var(--text-2);line-height:1.7">Open any listing and use the Contact Vendor button — it opens an email addressed directly to the seller.</p>
+      </div>
+      <div>
+        <h3 style="margin-bottom:6px">Something's not working — who do I ask?</h3>
+        <p style="color:var(--text-2);line-height:1.7">Email <a href="mailto:admin-support@strathmore.edu" style="color:var(--navy);font-weight:700">admin-support@strathmore.edu</a> and an administrator will help.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="auth-foot">
+    <p>© 2024 Strathmore University Flea Market</p>
+  </footer>
+
+  <script>
+    function switchTab(el) {
+      document.querySelectorAll('#legalTabs .role-tab').forEach(t => t.classList.remove('active'))
+      el.classList.add('active')
+      document.querySelectorAll('main section').forEach(s => s.style.display = 'none')
+      document.getElementById('tab-' + el.dataset.tab).style.display = 'block'
+    }
+    const hash = location.hash.replace('#', '')
+    if (hash) {
+      const btn = document.querySelector(`#legalTabs [data-tab="${hash}"]`)
+      if (btn) switchTab(btn)
+    }
+  </script>
+</body>
+</html>

@@ -20,14 +20,7 @@
       <div class="sidebar-urole" id="sidebarRole">Student</div>
     </div>
   </div>
-  <nav class="sidebar-nav">
-    <a class="nav-item active" href="marketplace.html"><span class="nav-icon">🏪</span>Marketplace</a>
-    <a class="nav-item" href="my-shop.html"><span class="nav-icon">🏷️</span>My Shop</a>
-    <a class="nav-item" href="#"><span class="nav-icon">📊</span>Analytics</a>
-    <a class="nav-item" href="#"><span class="nav-icon">📦</span>Orders</a>
-    <a class="nav-item" href="#"><span class="nav-icon">⚙️</span>Settings</a>
-    <a class="nav-item" href="#" onclick="logout();return false" style="margin-top:auto;color:var(--red)"><span class="nav-icon">🚪</span>Sign Out</a>
-  </nav>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
   <div class="sidebar-foot" id="sidebarFoot">Student ID: —</div>
 </aside>
 
@@ -43,7 +36,7 @@
       <div class="notif-wrap">
         <button class="icon-btn">🔔<span class="notif-dot"></span></button>
       </div>
-      <a href="my-shop.html" class="btn btn-primary btn-sm">+ List an Item</a>
+      <a href="my-shop.html?action=add" class="btn btn-primary btn-sm" id="listItemBtn" style="display:none">+ List an Item</a>
     </div>
 
     <div class="app-content">
@@ -79,12 +72,6 @@
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
         <div class="pill-row" id="catPills" style="margin-bottom:0">
           <button class="pill active" onclick="filterCat('',this)">All</button>
-          <button class="pill" onclick="filterCat('textbooks',this)">Textbooks</button>
-          <button class="pill" onclick="filterCat('electronics',this)">Electronics</button>
-          <button class="pill" onclick="filterCat('furniture',this)">Furniture</button>
-          <button class="pill" onclick="filterCat('accessories',this)">Accessories</button>
-          <button class="pill" onclick="filterCat('clothing',this)">Clothing</button>
-          <button class="pill" onclick="filterCat('lab-gear',this)">Lab Gear</button>
         </div>
         <div class="view-tools">
           <button class="view-btn active" title="Grid">⊞</button>
@@ -111,10 +98,10 @@
         © 2024 Strathmore Marketplace
       </div>
       <div style="display:flex;gap:18px">
-        <a href="#">Terms of Service</a>
-        <a href="#">Privacy Policy</a>
-        <a href="#">Help Center</a>
-        <a href="#">Contact</a>
+        <a href="legal.html#terms">Terms of Service</a>
+        <a href="legal.html#privacy">Privacy Policy</a>
+        <a href="legal.html#help">Help Center</a>
+        <a href="mailto:admin-support@strathmore.edu">Contact</a>
       </div>
     </footer>
   </main>
@@ -153,6 +140,13 @@
 
     grid.innerHTML = data.map(productGridCard).join('')
     updatePagination()
+  }
+
+  async function loadCategoryPills() {
+    const cats = await getCategories()
+    const el = document.getElementById('catPills')
+    el.innerHTML = '<button class="pill active" onclick="filterCat(\'\',this)">All</button>' +
+      cats.map(c => `<button class="pill" onclick="filterCat('${c.slug}',this)">${c.name}</button>`).join('')
   }
 
   function filterCat(cat, el) {
@@ -203,9 +197,11 @@
     searchQuery = urlQ
   }
 
-  requireAuth().then(session => {
+  requireAuth().then(async session => {
     if (!session) return
-    populateSidebar()
+    const profile = await populateSidebar()
+    if (profile?.role === 'vendor') document.getElementById('listItemBtn').style.display = 'inline-flex'
+    loadCategoryPills()
     loadProducts()
   })
 </script>
